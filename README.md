@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.2.2** · Core：**v1.1.0**
+> 当前项目版本：**v1.2.3** · Core：**v1.1.1**
 
 ## 核心功能
 
@@ -15,7 +15,7 @@
 - UFW、BBR、日志、配置测试、备份恢复
 - IPv6-only、NAT64 / DNS64、IPv6 可达下载代理
 
-## 私有仓库一键安装
+## 安装方式一：私有仓库一键安装
 
 仓库保持 **Private**。建议创建只针对 `xray-manager` 的 Fine-grained PAT，并只授予 `Contents: Read-only`。
 
@@ -36,6 +36,63 @@ rc=$?; rm -f /tmp/xray-manager-install.sh; unset GH_TOKEN; (exit $rc)
 ```bash
 sudo xraym
 ```
+
+## 安装方式二：手动下载和运行
+
+如果不想执行一键安装脚本，永久安装最少只需要下面两个文件：
+
+| 文件 | 用途 | 是否必需 |
+| --- | --- | --- |
+| **xray-manager.sh** | Launcher、自更新和版本显示 | 永久安装必需 |
+| **lib/xray-manager-core.sh** | 完整交互菜单和 Xray 管理功能 | 必需 |
+| **SHA256SUMS** | 校验文件是否完整 | 推荐 |
+| **VERSION** | 查看仓库项目版本 | 可选 |
+| **install.sh** | 私有仓库一键安装器 | 手动安装不需要 |
+
+### 1. 下载文件
+
+仓库是 Private，推荐先登录 GitHub，然后在仓库页面选择 **Code → Download ZIP**，上传到 VPS 后解压；也可以在已经配置 GitHub SSH Key 的机器上执行：
+
+~~~bash
+git clone git@github.com:xinian5216/xray-manager.git
+cd xray-manager
+~~~
+
+如果只下载单个文件，请保持 **lib/xray-manager-core.sh** 的目录结构，不要把两个脚本混在同一目录。
+
+### 2. 校验文件
+
+在项目根目录执行：
+
+~~~bash
+grep -E ' (xray-manager.sh|lib/xray-manager-core.sh)$' SHA256SUMS | sha256sum -c -
+~~~
+
+两项均显示 **OK** 后再继续。若系统没有 **sha256sum**，可以先安装 **coreutils**。
+
+### 3. 完整手动安装
+
+~~~bash
+sudo install -d -m 755 /usr/local/lib/xray-manager
+sudo install -m 755 xray-manager.sh /usr/local/sbin/xraym
+sudo install -m 755 lib/xray-manager-core.sh \
+  /usr/local/lib/xray-manager/xray-manager-core.sh
+sudo xraym
+~~~
+
+首次进入菜单后选择 **1) 一键安装 / 修复 Xray**。这里的“一键”只负责安装官方 Xray-core 和系统服务，不会重新下载 Xray Manager 项目。
+
+### 4. 只临时运行 Core
+
+不安装 Launcher 也可以直接运行：
+
+~~~bash
+sudo bash lib/xray-manager-core.sh
+~~~
+
+这种方式可以使用完整管理菜单，但不能直接使用 **xraym --self-update**。以后手动更新时应同时替换 Launcher 和 Core，避免两个文件版本不一致。
+
+## 更新
 
 自更新：
 
@@ -75,6 +132,8 @@ Xray-core / UFW / BBR / 配置文件
 │   └── PRIVATE_INSTALL.md
 ├── scripts/
 │   └── refresh-checksums.sh
+├── tests/
+│   └── smoke-configs.sh
 ├── .github/workflows/shellcheck.yml
 ├── README.md
 ├── CHANGELOG.md
@@ -87,7 +146,7 @@ Xray-core / UFW / BBR / 配置文件
 
 1. 先下载 `SHA256SUMS`、Launcher 与原始 Core。
 2. 校验 SHA256。
-3. 对原始 Core 在本机应用一个确定性的 Launcher 兼容补丁，使 Core 后续执行“安装 / 修复 Xray”时只更新自己的 Core 路径，不覆盖 `/usr/local/sbin/xraym`。
+3. 确认 Core 使用独立安装路径，不覆盖 `/usr/local/sbin/xraym`；安装器仍保留对旧版 Core 的兼容补丁。
 4. 对 Launcher 与补丁后的 Core 执行 `bash -n`。
 5. 全部通过后才安装。
 
@@ -118,7 +177,7 @@ bash -n install.sh
 sha256sum -c SHA256SUMS
 ```
 
-GitHub Actions 还会执行版本一致性、SHA256、Bash 语法与 ShellCheck 检查。
+GitHub Actions 还会执行版本一致性、SHA256、Bash 语法与 ShellCheck 检查，同时会下载固定版本的官方 Xray，对主要协议和传输生成结果执行真实配置测试。
 
 ## License
 
