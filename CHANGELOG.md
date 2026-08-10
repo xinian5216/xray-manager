@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.2.3 / Core v1.1.1 - 2026-08-10
+
+### Fixed
+- 修复 VLESS、VMess、Trojan 向导输出污染导致 jq --argjson 失败。
+- 修复命令替换子进程造成的传输类型、路径和 REALITY 客户端信息丢失。
+- 恢复 RAW + REALITY 的 Vision 选择，并修复 mKCP 的 UFW 协议判断。
+- 修复输入重试时警告文字污染端口、Tag、路径或密钥。
+- Core 原生支持独立安装路径，手动安装不再可能覆盖 Launcher。
+
+### Tests and docs
+- 新增基于 Xray v26.3.27 的主要协议与传输配置冒烟测试。
+- README 新增手动下载、校验、安装与直接运行说明。
+
 ## v1.2.2 - 2026-08-10
 
 ### Fixed
