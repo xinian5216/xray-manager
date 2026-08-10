@@ -4,7 +4,7 @@
 
 ### Security
 - 创建 REALITY 入站时检测常见共享 CDN 域名、CNAME 与响应头，高风险 target 需要二次确认。
-- 默认加入随机化的 REALITY fallback 上下行限速，降低未认证连接扫描造成的流量损失。
+- 提供随机化的 REALITY fallback 上下行限速，并允许用户在警告确认后自由关闭。
 - 入站详情默认脱敏 UUID、Short ID、密码与 REALITY 密钥，完整输出需要明确确认。
 - `/etc/xray-manager` 与备份目录改为 root-only，并设置更严格的默认 umask。
 
