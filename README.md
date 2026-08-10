@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.2.3** · Core：**v1.1.1**
+> 当前项目版本：**v1.2.4** · Core：**v1.2.0**
 
 ## 核心功能
 
@@ -12,6 +12,7 @@
 - SOCKS5、HTTP Proxy、WireGuard Inbound、Tunnel、TUN
 - RAW、XHTTP、gRPC、WebSocket、HTTPUpgrade、mKCP
 - REALITY / TLS / 自定义 SNI 与 target
+- REALITY 共享 CDN target 风险检测、随机化回落限速
 - UFW、BBR、日志、配置测试、备份恢复
 - IPv6-only、NAT64 / DNS64、IPv6 可达下载代理
 
@@ -105,6 +106,21 @@ sudo xraym --self-update
 ```bash
 xraym --version
 ```
+
+## REALITY 回落流量保护
+
+REALITY 会把未通过认证的连接转发到 `target` 以维持正常 TLS 站点的外观。因此即使攻击者没有 UUID，仍可能通过扫描消耗 VPS 与 `target` 之间的回落流量；共享 CDN target 的风险尤其高。
+
+项目创建 REALITY 入站时会：
+
+1. 检查常见共享 CDN 域名、CNAME 和 HTTPS 响应头；发现高风险目标时要求再次确认。
+2. 默认启用随机化的 `limitFallbackUpload` / `limitFallbackDownload`，提供“流量保护”和“隐蔽平衡”两档。
+3. 查看入站详情时默认隐藏 UUID、Short ID、密码和 REALITY 密钥。
+4. 将 `/etc/xray-manager` 与其中备份限制为 root-only。
+
+检测属于启发式判断，不能保证识别所有套了 CDN 的自定义域名。最稳妥的方案仍是自己的域名配合本机 Web 服务，或者同 ASN、非共享 CDN、资源体积较小的普通目标站。如果采用“偷自己”，应让本机 Web 服务监听另一个端口（例如 `127.0.0.1:8443`）并提供自有域名证书；不要让 target 再指回 Xray 正在监听的同一个公网端口，否则会形成回环。
+
+回落限速按单连接生效，攻击者可以通过并发连接部分绕过；限速行为本身也可能形成额外特征。因此它是止损措施，不能替代安全的 target 选择。
 
 ## 架构
 

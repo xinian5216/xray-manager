@@ -12,8 +12,9 @@
 
 set -Eeuo pipefail
 IFS=$'\n\t'
+umask 027
 
-SCRIPT_VERSION="1.1.1"
+SCRIPT_VERSION="1.2.0"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -575,6 +576,8 @@ pkg_install_optional() {
 
 ensure_layout() {
   mkdir -p "$CONF_DIR" "$CERT_DIR" "$ASSET_DIR" "$LOG_DIR" "$STATE_DIR" "$BACKUP_DIR"
+  chown root:root "$STATE_DIR" "$BACKUP_DIR" 2>/dev/null || true
+  chmod 700 "$STATE_DIR" "$BACKUP_DIR" 2>/dev/null || true
 
   if [[ ! -f "$BASE_FILE" ]]; then
     cat >"$BASE_FILE" <<'JSON'
@@ -1068,6 +1071,122 @@ REALITY_PRIVATE=""
 REALITY_SNI=""
 REALITY_TARGET=""
 REALITY_SHORTID=""
+REALITY_TARGET_RISK_REASON=""
+REALITY_TARGET_HIGH_RISK=0
+REALITY_LIMIT_FALLBACK=0
+REALITY_LIMIT_UP_AFTER=0
+REALITY_LIMIT_UP_RATE=0
+REALITY_LIMIT_UP_BURST=0
+REALITY_LIMIT_DOWN_AFTER=0
+REALITY_LIMIT_DOWN_RATE=0
+REALITY_LIMIT_DOWN_BURST=0
+
+random_range() {
+  local min="$1" max="$2" hex value
+  (( min <= max )) || return 1
+  hex="$(openssl rand -hex 4 2>/dev/null)" || return 1
+  value=$((16#$hex))
+  printf '%s' "$((min + value % (max - min + 1)))"
+}
+
+known_shared_cdn_name() {
+  local name="${1,,}"
+  name="${name%.}"
+  case "$name" in
+    cloudflare.com|*.cloudflare.com|*.pages.dev|*.workers.dev|\
+    *.cloudfront.net|*.fastly.net|*.fastlylb.net|\
+    *.akamai.net|*.akamaiedge.net|*.akamaihd.net|*.akamaized.net|\
+    *.edgekey.net|*.edgesuite.net|*.azureedge.net|*.azurefd.net|\
+    *.trafficmanager.net|*.cdn77.org|*.b-cdn.net|\
+    google.com|*.google.com|apple.com|*.apple.com|\
+    microsoft.com|*.microsoft.com)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+reality_target_risk_check() {
+  local host="$1" port="$2" dns_hint="" headers=""
+  REALITY_TARGET_RISK_REASON=""
+
+  if known_shared_cdn_name "$host"; then
+    REALITY_TARGET_RISK_REASON="目标域名本身属于常见共享 CDN 或大型公共站点"
+    return 0
+  fi
+
+  [[ "${XRAY_MANAGER_SKIP_TARGET_PROBE:-0}" == "1" ]] && return 1
+
+  if command -v dig >/dev/null 2>&1; then
+    dns_hint="$(dig +short CNAME "$host" 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+    if [[ "$dns_hint" =~ (cloudfront\.net|fastly\.net|fastlylb\.net|akamai|edgekey\.net|edgesuite\.net|azureedge\.net|azurefd\.net|trafficmanager\.net|cdn77\.org|b-cdn\.net) ]]; then
+      REALITY_TARGET_RISK_REASON="DNS CNAME 指向共享 CDN：$dns_hint"
+      return 0
+    fi
+  fi
+
+  if command -v curl >/dev/null 2>&1; then
+    headers="$(curl -ksSI --connect-timeout 4 --max-time 7 "https://${host}:${port}/" 2>/dev/null || true)"
+    if grep -Eiq '^(server:[[:space:]]*(cloudflare|akamaighost)|cf-ray:|x-amz-cf-|x-served-by:|x-azure-ref:)' <<<"$headers"; then
+      REALITY_TARGET_RISK_REASON="HTTPS 响应头显示目标可能位于共享 CDN"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+configure_reality_fallback_limits() {
+  local profile up_after_mib down_after_mib up_rate_kib down_rate_kib up_burst_kib down_burst_kib
+
+  echo
+  warn "REALITY 会把未通过认证的连接转发到 target；限速只能降低被扫描滥用后的流量损失。"
+  echo "回落连接保护："
+  echo "1) 流量保护（推荐低流量 VPS，参数随机化）"
+  echo "2) 隐蔽平衡（限速更宽松，参数随机化）"
+  echo "3) 不限速（不推荐共享 CDN target）"
+  profile="$(ask_default "请选择" "1")"
+
+  case "$profile" in
+    1)
+      up_after_mib="$(random_range 4 8)"
+      down_after_mib="$(random_range 6 12)"
+      up_rate_kib="$(random_range 128 320)"
+      down_rate_kib="$(random_range 256 640)"
+      up_burst_kib="$(random_range 768 1536)"
+      down_burst_kib="$(random_range 1536 3072)"
+      ;;
+    2)
+      up_after_mib="$(random_range 8 16)"
+      down_after_mib="$(random_range 12 24)"
+      up_rate_kib="$(random_range 512 1024)"
+      down_rate_kib="$(random_range 1024 2048)"
+      up_burst_kib="$(random_range 2048 4096)"
+      down_burst_kib="$(random_range 4096 8192)"
+      ;;
+    3)
+      if (( REALITY_TARGET_HIGH_RISK )); then
+        err "高风险共享 CDN target 不允许关闭回落限速。请更换 target，或选择保护档位。"
+        return 1
+      fi
+      REALITY_LIMIT_FALLBACK=0
+      warn "已关闭 REALITY 回落限速。请确保 target 不是共享 CDN，并持续关注 VPS 流量。"
+      return 0
+      ;;
+    *)
+      err "无效选择。"
+      return 1
+      ;;
+  esac
+
+  REALITY_LIMIT_FALLBACK=1
+  REALITY_LIMIT_UP_AFTER=$((up_after_mib * 1024 * 1024))
+  REALITY_LIMIT_DOWN_AFTER=$((down_after_mib * 1024 * 1024))
+  REALITY_LIMIT_UP_RATE=$((up_rate_kib * 1024))
+  REALITY_LIMIT_DOWN_RATE=$((down_rate_kib * 1024))
+  REALITY_LIMIT_UP_BURST=$((up_burst_kib * 1024))
+  REALITY_LIMIT_DOWN_BURST=$((down_burst_kib * 1024))
+}
 
 generate_reality_keys() {
   local out pubout
@@ -1100,10 +1219,25 @@ build_reality_settings() {
   }
 
   echo
-  info "REALITY 目标站建议自行确认：支持 TLS 1.3，SNI 与目标匹配，且尽量选择与你 VPS 网络位置合理的站点。"
-  target_host="$(ask_required "REALITY target 域名（不含端口）")"
+  info "优先使用自己的域名/本机 Web 服务，或同 ASN 的非 CDN 小站；避免 Cloudflare 等共享 CDN。"
+  target_host="$(ask_required "REALITY target 域名或 IP（不含端口）")"
   target_port="$(ask_port "REALITY target 端口" "443")"
   sni="$(ask_default "客户端 SNI/serverName" "$target_host")"
+
+  if reality_target_risk_check "$target_host" "$target_port"; then
+    REALITY_TARGET_HIGH_RISK=1
+    warn "高风险 REALITY target：$REALITY_TARGET_RISK_REASON"
+    warn "未认证连接可能借此把你的 VPS 当作 CDN 转发节点并消耗流量。"
+    confirm "仍然使用这个 target？" || {
+      warn "已取消，请重新选择非共享 CDN target。"
+      return 1
+    }
+  else
+    REALITY_TARGET_HIGH_RISK=0
+    info "未发现明显共享 CDN 特征；这是启发式检测，不能代替人工确认。"
+  fi
+
+  configure_reality_fallback_limits || return 1
 
   REALITY_TARGET="${target_host}:${target_port}"
   REALITY_SNI="$sni"
@@ -1114,16 +1248,34 @@ build_reality_settings() {
     --arg sni "$REALITY_SNI" \
     --arg private "$REALITY_PRIVATE" \
     --arg sid "$REALITY_SHORTID" \
+    --argjson limit "$REALITY_LIMIT_FALLBACK" \
+    --argjson up_after "$REALITY_LIMIT_UP_AFTER" \
+    --argjson up_rate "$REALITY_LIMIT_UP_RATE" \
+    --argjson up_burst "$REALITY_LIMIT_UP_BURST" \
+    --argjson down_after "$REALITY_LIMIT_DOWN_AFTER" \
+    --argjson down_rate "$REALITY_LIMIT_DOWN_RATE" \
+    --argjson down_burst "$REALITY_LIMIT_DOWN_BURST" \
     '{
       security:"reality",
-      realitySettings:{
+      realitySettings:({
         show:false,
         target:$target,
         xver:0,
         serverNames:[$sni],
         privateKey:$private,
         shortIds:[$sid]
-      }
+      } + (if $limit == 1 then {
+        limitFallbackUpload:{
+          afterBytes:$up_after,
+          bytesPerSec:$up_rate,
+          burstBytesPerSec:$up_burst
+        },
+        limitFallbackDownload:{
+          afterBytes:$down_after,
+          bytesPerSec:$down_rate,
+          burstBytesPerSec:$down_burst
+        }
+      } else {} end))
     }')"
 }
 
@@ -1250,6 +1402,11 @@ show_created_summary() {
     printf "  Target     : %s\n" "$REALITY_TARGET"
     printf "  PublicKey  : %s\n" "$REALITY_PUBLIC"
     printf "  ShortID    : %s\n" "$REALITY_SHORTID"
+    if (( REALITY_LIMIT_FALLBACK )); then
+      printf "  Fallback   : 已启用未认证连接随机限速\n"
+    else
+      printf "  Fallback   : 未限速\n"
+    fi
   fi
   echo
 }
@@ -1259,6 +1416,8 @@ add_vless() {
   local tag port listen uuid flow stream json
   TRANSPORT=""; TRANSPORT_PATH=""; TRANSPORT_HOST=""; GRPC_SERVICE=""
   REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
+  REALITY_TARGET_HIGH_RISK=0
+  REALITY_LIMIT_FALLBACK=0
 
   tag="$(ask_tag "vless-reality")"
   port="$(ask_port "监听端口" "443")"
@@ -1817,8 +1976,27 @@ show_inbound_details() {
   tag="$(ask_required "输入要查看的 Tag")"
   f="$(grep -Rl --include='10_inbound_*.json' "\"tag\"[[:space:]]*:[[:space:]]*\"$tag\"" "$CONF_DIR" 2>/dev/null | head -n 1 || true)"
   [[ -n "$f" ]] || { err "未找到。"; return; }
-  warn "以下内容可能包含 UUID、密码、REALITY 私钥等敏感信息："
-  jq . "$f"
+  if confirm "显示完整敏感信息（UUID、密码、REALITY 私钥等）？"; then
+    warn "请勿截图、录屏或把完整输出粘贴到公开位置。"
+    jq . "$f"
+  else
+    info "已默认脱敏；如确需完整值，请重新进入并明确确认。"
+    jq '
+      def sensitive_key:
+        . == "id" or . == "password" or . == "privatekey" or
+        . == "publickey" or . == "auth" or . == "shortids" or
+        . == "key";
+      walk(
+        if type == "object" then
+          with_entries(
+            if (.key | ascii_downcase | sensitive_key) then
+              .value = "<redacted>"
+            else . end
+          )
+        else . end
+      )
+    ' "$f"
+  fi
 }
 
 delete_inbound() {
