@@ -54,7 +54,8 @@ test_retry_inputs() {
 
 test_vless_reality() {
   reset_case vless-reality
-  add_vless <<< $'\n\n\n\n\n\nexample.com\n\n\n\ny' >"$XRAY_ROOT/result.txt"
+  XRAY_MANAGER_SKIP_TARGET_PROBE=1 \
+    add_vless <<< $'\n\n\n\n\n\nexample.com\n\n\n\ny' >"$XRAY_ROOT/result.txt"
   [[ "$TRANSPORT" == "raw" ]]
   [[ -n "$REALITY_PUBLIC" && -n "$REALITY_SHORTID" && "$REALITY_SNI" == "example.com" ]]
   [[ "$REALITY_LIMIT_FALLBACK" == "1" ]]
