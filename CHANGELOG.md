@@ -2,6 +2,28 @@
 
 所有值得记录的项目变化都会维护在这里。
 
+## v1.2.0 - 2026-08-10
+
+### Added
+
+- Private Repository 一键 bootstrap：`install.sh`
+- `VERSION`
+- `SHA256SUMS`
+- 安装前 SHA256 完整性校验
+- 安装前 `bash -n` 校验
+- `xraym` 私有仓库自更新菜单
+- Fine-grained PAT 临时认证，不默认保存 Token
+- IPv6-only bootstrap 下载代理支持
+- `docs/PRIVATE_INSTALL.md`
+- `scripts/refresh-checksums.sh`
+- GitHub Actions 中的版本与 SHA256 校验
+
+### Changed
+
+- 项目版本升级到 v1.2.0
+- README 增加私有仓库一键安装说明
+- CI 不再依赖第三方 ShellCheck Action 的 `master` 分支
+
 ## v1.1.0 - 2026-08-10
 
 ### Added

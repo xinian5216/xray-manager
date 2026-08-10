@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理脚本，重点兼顾普通 IPv4、双栈和 IPv6-only VPS。
 
-> 当前脚本版本：**v1.1.0**
+> 当前脚本版本：**v1.2.0**
 
 ## 功能
 
@@ -56,7 +56,42 @@
 
 > 不同云厂商可能修改内核、DNS、路由、防火墙或软件源，因此无法保证所有定制系统均可自动处理。
 
-## 快速开始
+## 私有仓库一键安装
+
+这个仓库保持 **Private**，所以一键下载需要 GitHub Fine-grained PAT。
+
+Token 建议只授权：
+
+```text
+xray-manager
+Contents: Read-only
+```
+
+一次粘贴版：
+
+```bash
+read -rsp "GitHub Token: " GH_TOKEN; echo; export GH_TOKEN; \
+curl -fsSL \
+  -H "Authorization: Bearer $GH_TOKEN" \
+  -H "Accept: application/vnd.github.raw+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "https://api.github.com/repos/xinian5216/xray-manager/contents/install.sh?ref=main" \
+  -o /tmp/xray-manager-install.sh && \
+bash /tmp/xray-manager-install.sh --run; \
+rc=$?; rm -f /tmp/xray-manager-install.sh; unset GH_TOKEN; exit $rc
+```
+
+安装器会验证 `SHA256SUMS` 和 Bash 语法，再安装为：
+
+```text
+/usr/local/sbin/xraym
+```
+
+详细说明：
+
+- [`docs/PRIVATE_INSTALL.md`](docs/PRIVATE_INSTALL.md)
+
+## 本地快速开始
 
 ```bash
 chmod +x xray-manager.sh
@@ -201,6 +236,9 @@ IPv6-only VPS 更新时仍会复用 NAT64 / DNS64 / 下载代理检测逻辑。
 ```text
 .
 ├── xray-manager.sh
+├── install.sh
+├── VERSION
+├── SHA256SUMS
 ├── README.md
 ├── CHANGELOG.md
 ├── SECURITY.md
@@ -208,7 +246,10 @@ IPv6-only VPS 更新时仍会复用 NAT64 / DNS64 / 下载代理检测逻辑。
 ├── .gitignore
 ├── docs
 │   ├── USAGE.md
-│   └── IPV6_ONLY.md
+│   ├── IPV6_ONLY.md
+│   └── PRIVATE_INSTALL.md
+├── scripts
+│   └── refresh-checksums.sh
 └── .github
     └── workflows
         └── shellcheck.yml
@@ -244,3 +285,23 @@ bash -n xray-manager.sh
 ## Disclaimer
 
 本脚本用于服务器管理和网络技术学习。使用者应自行确保用途符合所在地法律、服务商条款和网络管理要求。修改防火墙、路由、DNS、证书或代理配置均可能导致服务中断，请在重要服务器上提前准备快照和应急登录方式。
+
+## Xray Manager 自更新
+
+安装后的 `xraym` 主菜单包含：
+
+```text
+15) 检查 / 更新 Xray Manager（私有仓库）
+```
+
+更新时会：
+
+1. 安全提示输入 GitHub Token
+2. 对比 `VERSION`
+3. 下载 `SHA256SUMS`
+4. 下载新脚本
+5. 校验 SHA256
+6. 执行 `bash -n`
+7. 更新 `/usr/local/sbin/xraym`
+
+Token 默认不持久化。

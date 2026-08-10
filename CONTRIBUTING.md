@@ -31,3 +31,20 @@ shellcheck xray-manager.sh
 - `SCRIPT_VERSION`
 - `CHANGELOG.md`
 - `README.md`
+
+## 发布新版本
+
+修改脚本后：
+
+```bash
+./scripts/refresh-checksums.sh
+```
+
+并同步更新：
+
+- `SCRIPT_VERSION`
+- `VERSION`
+- `CHANGELOG.md`
+- `README.md`
+
+GitHub Actions 会检查版本一致性和 `SHA256SUMS`。
