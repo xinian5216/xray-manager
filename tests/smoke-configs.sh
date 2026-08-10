@@ -54,13 +54,24 @@ test_retry_inputs() {
 
 test_vless_reality() {
   reset_case vless-reality
-  add_vless <<< $'\n\n\n\n\n\nexample.com\n\n\ny' >"$XRAY_ROOT/result.txt"
+  add_vless <<< $'\n\n\n\n\n\nexample.com\n\n\n\ny' >"$XRAY_ROOT/result.txt"
   [[ "$TRANSPORT" == "raw" ]]
   [[ -n "$REALITY_PUBLIC" && -n "$REALITY_SHORTID" && "$REALITY_SNI" == "example.com" ]]
+  [[ "$REALITY_LIMIT_FALLBACK" == "1" ]]
   grep -q 'PublicKey' "$XRAY_ROOT/result.txt"
   jq -e '.inbounds[0].settings.users[0].flow=="xtls-rprx-vision"' \
     "$CONF_DIR/10_inbound_vless-reality.json" >/dev/null
+  jq -e '
+    .inbounds[0].streamSettings.realitySettings.limitFallbackUpload.bytesPerSec > 0 and
+    .inbounds[0].streamSettings.realitySettings.limitFallbackDownload.bytesPerSec > 0
+  ' "$CONF_DIR/10_inbound_vless-reality.json" >/dev/null
   assert_config
+}
+
+test_reality_target_risk_detection() {
+  known_shared_cdn_name "cdn.example.cloudfront.net"
+  known_shared_cdn_name "WWW.CLOUDFLARE.COM"
+  ! known_shared_cdn_name "origin.example.net"
 }
 
 test_vmess_transport() {
@@ -139,6 +150,7 @@ test_wireguard() {
 }
 
 test_retry_inputs
+test_reality_target_risk_detection
 test_vless_reality
 test_vmess_transport raw raw $'\n\n\n\n1\n2\ny'
 test_vmess_transport xhttp xhttp $'\n\n\n\n2\n\n2\ny'
