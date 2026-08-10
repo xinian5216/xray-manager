@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-PROJECT_VERSION="1.2.1"
+PROJECT_VERSION="1.2.2"
 CORE_VERSION="1.1.0"
 REPOSITORY="xinian5216/xray-manager"
 REF="${XRAY_MANAGER_REF:-main}"
@@ -97,6 +97,21 @@ verify_payload() {
   done
 }
 
+patch_core_for_launcher() {
+  local file="$1"
+  local old='install -m 755 "$self" /usr/local/sbin/xraym'
+  local new='install -m 755 "$self" "${XRAY_MANAGER_CORE_INSTALL_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"'
+
+  if grep -Fq "$old" "$file"; then
+    sed -i "s|$old|$new|" "$file"
+  elif grep -Fq 'XRAY_MANAGER_CORE_INSTALL_PATH' "$file"; then
+    :
+  else
+    err "无法应用 Core/Launcher 兼容补丁，拒绝安装。"
+    return 1
+  fi
+}
+
 install_pair() {
   local launcher="$1" core="$2"
 
@@ -161,6 +176,7 @@ self_update() {
   verify_payload "$tmp/SHA256SUMS" "$tmp" \
     "xray-manager.sh" "lib/xray-manager-core.sh" || return 1
 
+  patch_core_for_launcher "$tmp/lib/xray-manager-core.sh" || return 1
   bash -n "$tmp/xray-manager.sh"
   bash -n "$tmp/lib/xray-manager-core.sh"
 

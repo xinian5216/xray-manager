@@ -122,6 +122,21 @@ verify_payload() {
   done
 }
 
+patch_core_for_launcher() {
+  local file="$1"
+  local old='install -m 755 "$self" /usr/local/sbin/xraym'
+  local new='install -m 755 "$self" "${XRAY_MANAGER_CORE_INSTALL_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"'
+
+  if grep -Fq "$old" "$file"; then
+    sed -i "s|$old|$new|" "$file"
+  elif grep -Fq 'XRAY_MANAGER_CORE_INSTALL_PATH' "$file"; then
+    :
+  else
+    err "无法应用 Core/Launcher 兼容补丁，拒绝安装。"
+    return 1
+  fi
+}
+
 install_pair() {
   local launcher="$1" core="$2"
   if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
@@ -166,6 +181,7 @@ curl_private "lib/xray-manager-core.sh" "$TMP/lib/xray-manager-core.sh" "$TOKEN"
 verify_payload "$TMP/SHA256SUMS" "$TMP" \
   "xray-manager.sh" "lib/xray-manager-core.sh"
 
+patch_core_for_launcher "$TMP/lib/xray-manager-core.sh"
 bash -n "$TMP/xray-manager.sh"
 bash -n "$TMP/lib/xray-manager-core.sh"
 
