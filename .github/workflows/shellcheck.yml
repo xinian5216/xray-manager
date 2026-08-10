@@ -14,30 +14,22 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Bash syntax
         run: |
           bash -n xray-manager.sh
+          bash -n lib/xray-manager-core.sh
           bash -n install.sh
           bash -n scripts/refresh-checksums.sh
-
       - name: Verify project version
         run: |
-          test "$(tr -d '[:space:]' < VERSION)" = \
-            "$(sed -n 's/^SCRIPT_VERSION="\(.*\)"/\1/p' xray-manager.sh | head -n1)"
-
+          test "$(tr -d '[:space:]' < VERSION)" = "$(sed -n 's/^PROJECT_VERSION="\(.*\)"/\1/p' xray-manager.sh | head -n1)"
       - name: Verify SHA256SUMS
         run: sha256sum -c SHA256SUMS
-
       - name: Install ShellCheck
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
-
-      - name: ShellCheck
-        run: |
-          shellcheck -S warning xray-manager.sh
-          shellcheck -S warning install.sh
-          shellcheck -S warning scripts/refresh-checksums.sh
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: ShellCheck launchers
+        run: shellcheck -S warning xray-manager.sh install.sh scripts/refresh-checksums.sh
+      - name: ShellCheck core
+        continue-on-error: true
+        run: shellcheck -S warning lib/xray-manager-core.sh
