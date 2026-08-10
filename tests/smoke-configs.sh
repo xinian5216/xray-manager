@@ -75,6 +75,14 @@ test_reality_target_risk_detection() {
   ! known_shared_cdn_name "origin.example.net"
 }
 
+test_high_risk_target_can_disable_limits() {
+  REALITY_TARGET_HIGH_RISK=1
+  REALITY_LIMIT_FALLBACK=1
+  configure_reality_fallback_limits <<< $'3\ny' >/dev/null 2>&1
+  [[ "$REALITY_LIMIT_FALLBACK" == "0" ]]
+  REALITY_TARGET_HIGH_RISK=0
+}
+
 test_vmess_transport() {
   local name="$1" expected="$2" input="$3"
   reset_case "vmess-$name"
@@ -152,6 +160,7 @@ test_wireguard() {
 
 test_retry_inputs
 test_reality_target_risk_detection
+test_high_risk_target_can_disable_limits
 test_vless_reality
 test_vmess_transport raw raw $'\n\n\n\n1\n2\ny'
 test_vmess_transport xhttp xhttp $'\n\n\n\n2\n\n2\ny'
