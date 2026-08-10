@@ -13,7 +13,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.1.1"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -39,9 +39,9 @@ C_BLUE='\033[34m'
 C_CYAN='\033[36m'
 C_BOLD='\033[1m'
 
-info() { printf "${C_BLUE}[i]${C_RESET} %s\n" "$*"; }
-ok()   { printf "${C_GREEN}[✓]${C_RESET} %s\n" "$*"; }
-warn() { printf "${C_YELLOW}[!]${C_RESET} %s\n" "$*"; }
+info() { printf "${C_BLUE}[i]${C_RESET} %s\n" "$*" >&2; }
+ok()   { printf "${C_GREEN}[✓]${C_RESET} %s\n" "$*" >&2; }
+warn() { printf "${C_YELLOW}[!]${C_RESET} %s\n" "$*" >&2; }
 err()  { printf "${C_RED}[x]${C_RESET} %s\n" "$*" >&2; }
 die()  { err "$*"; exit 1; }
 
@@ -371,8 +371,8 @@ restore_dns64() {
 }
 
 set_download_proxy() {
-  local proxy save
-  echo
+  local proxy
+  echo >&2
   echo "支持示例："
   echo "  http://[IPv6地址]:端口"
   echo "  http://user:pass@[IPv6地址]:端口"
@@ -404,9 +404,7 @@ clear_download_proxy() {
 }
 
 network_stack_label() {
-  local v4="无" v6="无" v4net="失败" v6net="失败"
-  has_global_ipv4 && v4="有"
-  has_global_ipv6 && v6="有"
+  local v4net="失败" v6net="失败"
   test_ipv4_internet && v4net="正常"
   test_ipv6_internet && v6net="正常"
 
@@ -478,7 +476,7 @@ prepare_download_network() {
 
     echo
     warn "这台机器当前没有一条可确认的 IPv4 出口。"
-    echo "可以给脚本一个“IPv6 本身可访问、且能代你访问 IPv4”的 HTTP/SOCKS5 代理。"
+    echo '可以给脚本一个“IPv6 本身可访问、且能代你访问 IPv4”的 HTTP/SOCKS5 代理。'
     if confirm "现在设置下载代理？"; then
       set_download_proxy && return 0
     fi
@@ -618,8 +616,9 @@ install_manager_command() {
   local self
   self="$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")"
   if [[ -f "$self" ]]; then
-    install -m 755 "$self" /usr/local/sbin/xraym
-    ok "管理命令已安装：xraym"
+    install -d -m 755 "$(dirname "${XRAY_MANAGER_CORE_INSTALL_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}")"
+    install -m 755 "$self" "${XRAY_MANAGER_CORE_INSTALL_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"
+    ok "管理核心已安装：${XRAY_MANAGER_CORE_INSTALL_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"
   fi
 }
 
@@ -909,7 +908,7 @@ acme_issue_certificate() {
 
   if port_in_use 80; then
     err "80/TCP 当前已被占用。acme.sh standalone HTTP-01 需要 80 端口空闲。"
-    warn "如果你正在运行 Nginx/Caddy，请改用“已有证书”方式，或自行使用 webroot/DNS 模式签发。"
+    warn '如果你正在运行 Nginx/Caddy，请改用“已有证书”方式，或自行使用 webroot/DNS 模式签发。'
     return 1
   fi
 
@@ -982,6 +981,8 @@ TRANSPORT_SETTINGS='{}'
 TRANSPORT_PATH=""
 TRANSPORT_HOST=""
 GRPC_SERVICE=""
+STREAM_SETTINGS='{}'
+SECURITY_SETTINGS='{}'
 
 choose_transport() {
   local c path host service mtu
@@ -1108,7 +1109,7 @@ build_reality_settings() {
   REALITY_SNI="$sni"
   REALITY_SHORTID="$(random_hex 8)"
 
-  jq -cn \
+  SECURITY_SETTINGS="$(jq -cn \
     --arg target "$REALITY_TARGET" \
     --arg sni "$REALITY_SNI" \
     --arg private "$REALITY_PRIVATE" \
@@ -1123,14 +1124,14 @@ build_reality_settings() {
         privateKey:$private,
         shortIds:[$sid]
       }
-    }'
+    }')"
 }
 
 build_tls_settings() {
   local tag="$1" server_name
   tls_certificate_wizard "$tag" || return 1
   server_name="$(ask_default "TLS SNI/证书域名" "${TLS_DOMAIN:-}")"
-  jq -cn \
+  SECURITY_SETTINGS="$(jq -cn \
     --arg cert "$MANAGED_CERT" \
     --arg key "$MANAGED_KEY" \
     --arg sn "$server_name" \
@@ -1146,11 +1147,13 @@ build_tls_settings() {
           }
         ]
       }
-    }'
+    }')"
 }
 
 build_stream_settings() {
-  local protocol="$1" tag="$2" sec_choice security_json base
+  local protocol="$1" tag="$2" sec_choice base
+  STREAM_SETTINGS='{}'
+  SECURITY_SETTINGS='{}'
   choose_transport
 
   base="$(jq -cn --arg m "$TRANSPORT" --argjson s "$TRANSPORT_SETTINGS" '$s + {method:$m}')"
@@ -1161,7 +1164,7 @@ build_stream_settings() {
       warn "VLESS 公网使用通常应有外层传输安全；这里更建议 VMess+mKCP，或自行配置 VLESS Encryption/FinalMask。"
       confirm "仍创建 VLESS + mKCP + security=none？" || return 1
     fi
-    jq -cn --argjson b "$base" '$b + {security:"none"}'
+    STREAM_SETTINGS="$(jq -cn --argjson b "$base" '$b + {security:"none"}')"
     return 0
   fi
 
@@ -1192,18 +1195,18 @@ build_stream_settings() {
   case "$sec_choice" in
     1)
       if [[ "$protocol" == "vless" && ( "$TRANSPORT" == "raw" || "$TRANSPORT" == "xhttp" || "$TRANSPORT" == "grpc" ) ]]; then
-        security_json="$(build_reality_settings)" || return 1
+        build_reality_settings || return 1
       else
-        security_json="$(build_tls_settings "$tag")" || return 1
+        build_tls_settings "$tag" || return 1
       fi
       ;;
     2)
-      security_json="$(build_tls_settings "$tag")" || return 1
+      build_tls_settings "$tag" || return 1
       ;;
     3)
       warn "你选择了 security=none。公网场景请确认协议/网络环境确实适合。"
       confirm "继续？" || return 1
-      security_json='{"security":"none"}'
+      SECURITY_SETTINGS='{"security":"none"}'
       ;;
     *)
       err "无效选择。"
@@ -1211,7 +1214,7 @@ build_stream_settings() {
       ;;
   esac
 
-  jq -cn --argjson b "$base" --argjson s "$security_json" '$b + $s'
+  STREAM_SETTINGS="$(jq -cn --argjson b "$base" --argjson s "$SECURITY_SETTINGS" '$b + $s')"
 }
 
 maybe_ufw_for_transport() {
@@ -1240,6 +1243,7 @@ show_created_summary() {
   [[ -n "$credential" ]] && printf "  Credential : %s\n" "$credential"
   [[ -n "$TRANSPORT" ]] && printf "  Transport  : %s\n" "$TRANSPORT"
   [[ -n "$TRANSPORT_PATH" ]] && printf "  Path       : %s\n" "$TRANSPORT_PATH"
+  [[ -n "$TRANSPORT_HOST" ]] && printf "  Host       : %s\n" "$TRANSPORT_HOST"
   [[ -n "$GRPC_SERVICE" ]] && printf "  gRPC       : %s\n" "$GRPC_SERVICE"
   if [[ -n "$REALITY_SNI" ]]; then
     printf "  REALITY SNI: %s\n" "$REALITY_SNI"
@@ -1253,7 +1257,7 @@ show_created_summary() {
 add_vless() {
   need_xray || return
   local tag port listen uuid flow stream json
-  TRANSPORT=""; TRANSPORT_PATH=""; GRPC_SERVICE=""
+  TRANSPORT=""; TRANSPORT_PATH=""; TRANSPORT_HOST=""; GRPC_SERVICE=""
   REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
 
   tag="$(ask_tag "vless-reality")"
@@ -1262,7 +1266,8 @@ add_vless() {
   listen="$(ask_default "监听地址" "$(default_public_listen)")"
   uuid="$(ask_default "UUID（留默认自动生成）" "$(generate_uuid)")"
 
-  stream="$(build_stream_settings "vless" "$tag")" || return
+  build_stream_settings "vless" "$tag" || return
+  stream="$STREAM_SETTINGS"
 
   flow=""
   if jq -e '.security=="reality"' >/dev/null <<<"$stream" && [[ "$TRANSPORT" == "raw" ]]; then
@@ -1299,7 +1304,7 @@ add_vless() {
 add_vmess() {
   need_xray || return
   local tag port listen uuid stream json
-  TRANSPORT=""; TRANSPORT_PATH=""; GRPC_SERVICE=""
+  TRANSPORT=""; TRANSPORT_PATH=""; TRANSPORT_HOST=""; GRPC_SERVICE=""
   REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
 
   tag="$(ask_tag "vmess")"
@@ -1307,7 +1312,8 @@ add_vmess() {
   warn_port "$port" || return
   listen="$(ask_default "监听地址" "$(default_public_listen)")"
   uuid="$(ask_default "UUID（留默认自动生成）" "$(generate_uuid)")"
-  stream="$(build_stream_settings "vmess" "$tag")" || return
+  build_stream_settings "vmess" "$tag" || return
+  stream="$STREAM_SETTINGS"
 
   json="$(jq -cn \
     --arg tag "$tag" --arg listen "$listen" --argjson port "$port" \
@@ -1335,14 +1341,16 @@ add_vmess() {
 add_trojan() {
   need_xray || return
   local tag port listen password stream json
-  TRANSPORT=""; TRANSPORT_PATH=""; GRPC_SERVICE=""
+  TRANSPORT=""; TRANSPORT_PATH=""; TRANSPORT_HOST=""; GRPC_SERVICE=""
+  REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
 
   tag="$(ask_tag "trojan-tls")"
   port="$(ask_port "监听端口" "443")"
   warn_port "$port" || return
   listen="$(ask_default "监听地址" "$(default_public_listen)")"
   password="$(ask_default "Trojan 密码" "$(random_secret)")"
-  stream="$(build_stream_settings "trojan" "$tag")" || return
+  build_stream_settings "trojan" "$tag" || return
+  stream="$STREAM_SETTINGS"
 
   json="$(jq -cn \
     --arg tag "$tag" --arg listen "$listen" --argjson port "$port" \
@@ -1371,6 +1379,9 @@ add_shadowsocks() {
   local tag port listen method keylen password network json c
   TRANSPORT="native"
   TRANSPORT_PATH=""
+  TRANSPORT_HOST=""
+  GRPC_SERVICE=""
+  REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
 
   tag="$(ask_tag "ss2022")"
   port="$(ask_port "监听端口" "8388")"
@@ -1432,6 +1443,8 @@ add_socks() {
   need_xray || return
   local tag port listen auth user pass udp json c
   TRANSPORT="local"
+  TRANSPORT_PATH=""; TRANSPORT_HOST=""; GRPC_SERVICE=""
+  REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
 
   warn "SOCKS 本身不加密，默认只监听 127.0.0.1。"
   tag="$(ask_tag "socks-local")"
@@ -1476,6 +1489,8 @@ add_http() {
   need_xray || return
   local tag port listen user pass json
   TRANSPORT="local"
+  TRANSPORT_PATH=""; TRANSPORT_HOST=""; GRPC_SERVICE=""
+  REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
 
   warn "HTTP 入站不加密，默认只监听 127.0.0.1。"
   tag="$(ask_tag "http-local")"
@@ -1503,6 +1518,9 @@ add_hysteria2() {
   local tag port listen auth stream json domain cert key up down
   TRANSPORT="hysteria"
   TRANSPORT_PATH=""
+  TRANSPORT_HOST=""
+  GRPC_SERVICE=""
+  REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
 
   tag="$(ask_tag "hysteria2")"
   port="$(ask_port "UDP 监听端口" "443")"
@@ -1571,6 +1589,8 @@ add_wireguard() {
   need_xray || return
   local tag port listen server_priv server_pub client_pub allowed mtu json
   TRANSPORT="wireguard"
+  TRANSPORT_PATH=""; TRANSPORT_HOST=""; GRPC_SERVICE=""
+  REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
 
   warn "这是 Xray 的 userspace WireGuard 入站；它不是专门为代理伪装设计的。"
   tag="$(ask_tag "wireguard-in")"
@@ -1621,6 +1641,8 @@ add_tunnel() {
   need_xray || return
   local tag listen port network target target_port json
   TRANSPORT="tunnel"
+  TRANSPORT_PATH=""; TRANSPORT_HOST=""; GRPC_SERVICE=""
+  REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
 
   tag="$(ask_tag "tunnel")"
   listen="$(ask_default "本地监听地址" "127.0.0.1")"
@@ -1706,7 +1728,7 @@ import_custom_json() {
   local tag tmp input json
   tag="$(ask_tag "custom")"
   echo
-  echo "请粘贴“单个 InboundObject”JSON，例如："
+  echo '请粘贴“单个 InboundObject”JSON，例如：'
   echo '{"tag":"custom","listen":"0.0.0.0","port":12345,"protocol":"...","settings":{}}'
   echo "输入完成后按 Ctrl-D："
 
@@ -2213,8 +2235,10 @@ main_menu() {
   done
 }
 
-require_root
-detect_platform
-ensure_layout
-load_network_state
-main_menu
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  require_root
+  detect_platform
+  ensure_layout
+  load_network_state
+  main_menu
+fi
