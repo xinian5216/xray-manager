@@ -54,4 +54,10 @@ backups/
 - WARP
 - SSH 端口
 
+## REALITY target 与回落流量
+
+REALITY 会把未通过认证的连接转发到 `target`。不要把 Cloudflare、CloudFront、Fastly、Akamai 等共享 CDN 作为默认 target，否则服务器可能被扫描后当作受限 CDN 转发节点使用。
+
+优先使用自己的域名与本机 Web 服务，或同 ASN 的非 CDN 小站。项目提供的 `limitFallbackUpload` / `limitFallbackDownload` 只能限制单个回落连接，不能完全阻止分布式或并发滥用。
+
 脚本包含部分回滚机制，但不能覆盖所有云厂商和异常情况。
