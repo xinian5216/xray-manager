@@ -3,8 +3,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-PROJECT_VERSION="1.2.2"
-CORE_VERSION="1.1.0"
+PROJECT_VERSION="1.2.3"
+CORE_VERSION="1.1.1"
 REPOSITORY="xinian5216/xray-manager"
 REF="${XRAY_MANAGER_REF:-main}"
 API_BASE="https://api.github.com/repos/${REPOSITORY}/contents"
@@ -194,6 +194,7 @@ run_core() {
     warn "请重新运行私有仓库 install.sh。"
     exit 1
   fi
+  export XRAY_MANAGER_CORE_INSTALL_PATH="$CORE_PATH"
   exec "$CORE_PATH" "$@"
 }
 
