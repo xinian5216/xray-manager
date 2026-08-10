@@ -1144,7 +1144,7 @@ configure_reality_fallback_limits() {
   echo "回落连接保护："
   echo "1) 流量保护（推荐低流量 VPS，参数随机化）"
   echo "2) 隐蔽平衡（限速更宽松，参数随机化）"
-  echo "3) 不限速（不推荐共享 CDN target）"
+  echo "3) 不限速（隐蔽优先，仅建议安全 target）"
   profile="$(ask_default "请选择" "1")"
 
   case "$profile" in
@@ -1166,11 +1166,12 @@ configure_reality_fallback_limits() {
       ;;
     3)
       if (( REALITY_TARGET_HIGH_RISK )); then
-        err "高风险共享 CDN target 不允许关闭回落限速。请更换 target，或选择保护档位。"
-        return 1
+        warn "高风险共享 CDN target 关闭限速后，扫描者可能持续消耗你的 VPS 流量。"
+        warn "不限速更接近正常网站行为，但不能防止回落流量滥用。"
+        confirm "确认仍关闭 REALITY 回落限速？" || return 1
       fi
       REALITY_LIMIT_FALLBACK=0
-      warn "已关闭 REALITY 回落限速。请确保 target 不是共享 CDN，并持续关注 VPS 流量。"
+      warn "已关闭 REALITY 回落限速。请优先使用非共享 CDN target，并持续关注 VPS 流量。"
       return 0
       ;;
     *)
