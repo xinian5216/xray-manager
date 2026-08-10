@@ -1,0 +1,33 @@
+# Secrets / certificates
+*.key
+*.pem
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+.env
+.env.*
+secrets/
+
+# Runtime / backups
+backups/
+*.tar.gz
+*.log
+*.pid
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+tmp/
+temp/
+*.tmp
