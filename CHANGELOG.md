@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.2.4 / Core v1.2.0 - 2026-08-10
+
+### Security
+- 创建 REALITY 入站时检测常见共享 CDN 域名、CNAME 与响应头，高风险 target 需要二次确认。
+- 默认加入随机化的 REALITY fallback 上下行限速，降低未认证连接扫描造成的流量损失。
+- 入站详情默认脱敏 UUID、Short ID、密码与 REALITY 密钥，完整输出需要明确确认。
+- `/etc/xray-manager` 与备份目录改为 root-only，并设置更严格的默认 umask。
+
+### Tests and docs
+- 新增共享 CDN 域名识别和 fallback 限速配置测试。
+- README 补充 REALITY 回落机制、限速局限与安全 target 建议。
+
 ## v1.2.3 / Core v1.1.1 - 2026-08-10
 
 ### Fixed
