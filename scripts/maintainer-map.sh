@@ -12,7 +12,7 @@ MAP_ROWS=(
   "network-ipv6|网络 ipv4 ipv6 only-v6 NAT64 DNS64 下载代理 proxy|lib/xray-manager-core.sh,install.sh,cloudflare-install.sh|tests/cloudflare-core-download.sh,tests/offline-install.sh|docs/IPV6_ONLY.md,README.md|network,ipv[46],dns64,download,proxy,cloudflare"
   "inbound-transport|入站 inbound VLESS VMess Trojan Shadowsocks SOCKS HTTP Hysteria2 WireGuard Tunnel TUN RAW XHTTP gRPC WebSocket REALITY TLS 证书 SNI|lib/xray-manager-core.sh|tests/smoke-configs.sh|docs/USAGE.md,README.md|inbound,transport,reality,tls,certificate,add_"
   "outbound|出站 outbound freedom socks http shadowsocks wireguard warp dialerProxy|lib/xray-manager-core.sh|tests/smoke-configs.sh|docs/USAGE.md,README.md|outbound"
-  "routing|路由 routing 分流 rule geosite geoip CIDR 默认出口 domainStrategy|lib/xray-manager-core.sh|tests/smoke-configs.sh|docs/USAGE.md,README.md|routing|route"
+  "routing|路由 routing 分流 rule geosite geoip CIDR 默认出口 domainStrategy|lib/xray-manager-core.sh|tests/smoke-configs.sh|docs/USAGE.md,README.md|routing,route"
   "port-forward|端口转发 forwarding forward TCP UDP 监听 目标端口|lib/xray-manager-core.sh|tests/smoke-configs.sh|docs/USAGE.md,README.md|port_forward"
   "config-safety|配置 写入 回滚 backup restore test config conf.d 安全删除|lib/xray-manager-core.sh|tests/smoke-configs.sh,tests/config-migration.sh|docs/MAINTAINER_GUIDE.md,README.md|safe_,backup,restore,test_config"
   "xray-geodata|Xray-core core geodata geoip geosite 更新 延迟 release 14天 7天|lib/xray-manager-core.sh,scripts/select-xray-release.sh,XRAY_VERSION,.github/workflows/publish-r2.yml|tests/xray-release-delay.sh,tests/smoke-configs.sh|README.md,CHANGELOG.md|update_xray,update_geodata,release"
@@ -117,10 +117,16 @@ find_area() {
 }
 
 check_map() {
-  local row area _keywords implementation tests docs _symbols group path failed=0
+  local row area _keywords implementation tests docs _symbols group path separators failed=0
   declare -A seen=()
 
   for row in "${MAP_ROWS[@]}"; do
+    separators="${row//[^|]/}"
+    if ((${#separators} != 5)); then
+      printf '[x] 映射行必须正好包含 6 个字段：%s\n' "$row" >&2
+      failed=1
+      continue
+    fi
     IFS='|' read -r area _keywords implementation tests docs _symbols <<<"$row"
     if [[ -n "${seen[$area]:-}" ]]; then
       printf '[x] 重复区域：%s\n' "$area" >&2
