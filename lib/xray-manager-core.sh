@@ -975,8 +975,12 @@ backup_xray_service_state() {
       cp -a /lib/systemd/system/xray.service "$backup/xray.service.lib" || true
     fi
   elif [[ "$INIT_SYS" == "openrc" ]]; then
-    [[ -f /etc/init.d/xray ]] && cp -a /etc/init.d/xray "$backup/xray.init" || true
-    [[ -f /etc/conf.d/xray ]] && cp -a /etc/conf.d/xray "$backup/xray.conf" || true
+    if [[ -f /etc/init.d/xray ]]; then
+      cp -a /etc/init.d/xray "$backup/xray.init" || true
+    fi
+    if [[ -f /etc/conf.d/xray ]]; then
+      cp -a /etc/conf.d/xray "$backup/xray.conf" || true
+    fi
   fi
 }
 
@@ -1014,22 +1018,24 @@ migrate_existing_xray_config() {
     }
   fi
   backup_xray_service_state "$backup"
-  [[ -f "$XRAY_BIN" ]] && cp -a "$XRAY_BIN" "$backup/xray" || true
+  if [[ -f "$XRAY_BIN" ]]; then
+    cp -a "$XRAY_BIN" "$backup/xray" || true
+  fi
 
   if [[ "$kind" == "file" ]]; then
-    cp -a "$source" "$backup/legacy-config.json" &&
-      install -m 640 "$source" "$stage/00_base.json" || {
-        err "复制旧配置失败，已中止。"
-        rm -rf "$stage"
-        return 1
-      }
+    if ! cp -a "$source" "$backup/legacy-config.json" ||
+       ! install -m 640 "$source" "$stage/00_base.json"; then
+      err "复制旧配置失败，已中止。"
+      rm -rf "$stage"
+      return 1
+    fi
   else
-    cp -a "$source" "$backup/legacy-confdir" &&
-      cp -a "$source"/. "$stage"/ || {
-        err "复制旧配置目录失败，已中止。"
-        rm -rf "$stage"
-        return 1
-      }
+    if ! cp -a "$source" "$backup/legacy-confdir" ||
+       ! cp -a "$source"/. "$stage"/; then
+      err "复制旧配置目录失败，已中止。"
+      rm -rf "$stage"
+      return 1
+    fi
     if [[ ! -f "$stage/00_base.json" ]]; then
       first_json="$(find "$stage" -maxdepth 1 \( -type f -o -type l \) -name '*.json' -print |
         LC_ALL=C sort | head -n 1)"
@@ -1062,7 +1068,9 @@ migrate_existing_xray_config() {
   fi
   if ! mv "$stage" "$CONF_DIR"; then
     err "写入迁移配置失败，正在恢复。"
-    [[ -e "$previous" ]] && mv "$previous" "$CONF_DIR" || true
+    if [[ -e "$previous" ]]; then
+      mv "$previous" "$CONF_DIR" || true
+    fi
     return 1
   fi
 
