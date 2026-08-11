@@ -54,6 +54,9 @@ export XRAY_TEST_FIXTURES="$FIXTURES"
 export XRAY_TEST_CURL_LOG="$TEST_ROOT/curl.log"
 PATH="$MOCK_BIN:$PATH"
 
+# The Core already defines this function; the test replaces it later only for
+# a separate dispatch assertion.
+# shellcheck disable=SC2218
 cloudflare_install_or_update_xray
 cmp "$PACKAGE_ROOT/payload/Xray-linux-64.zip" "$RESULT/xray.zip"
 cmp "$PACKAGE_ROOT/payload/geoip.dat" "$RESULT/geoip.dat"
@@ -80,4 +83,3 @@ update_geodata
 [[ "$cloudflare_geodata_calls" -eq 1 ]]
 
 echo "Cloudflare Core download test passed."
-
