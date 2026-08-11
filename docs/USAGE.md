@@ -105,14 +105,22 @@ REALITY 向导会要求：
 4. 重启 Xray
 5. 异常时尝试回滚
 
-## 6. 更新
+## 6. 更新 Xray Manager
+
+```bash
+sudo xraym --self-update
+```
+
+通过 Cloudflare 安装时会继续使用 Worker + 私有 R2，并再次提示安装密钥；通过 GitHub 安装时继续使用 Fine-grained PAT。也可用 `--self-update-cloudflare` 或 `--self-update-github` 强制指定。
+
+## 7. 更新 Xray 与 GeoData
 
 ```text
 6) 更新 Xray-core
 7) 更新 GeoIP / GeoSite
 ```
 
-## 7. UFW
+## 8. UFW
 
 选择：
 
@@ -124,7 +132,7 @@ REALITY 向导会要求：
 
 即使脚本会先放行当前 SSH 端口，仍建议保留 VPS 控制台作为应急方案。
 
-## 8. BBR
+## 9. BBR
 
 选择：
 
@@ -134,7 +142,7 @@ REALITY 向导会要求：
 
 脚本仅在当前内核支持时启用。
 
-## 9. 日志
+## 10. 日志
 
 选择：
 
@@ -150,7 +158,7 @@ REALITY 向导会要求：
 - access.log
 - Xray 版本
 
-## 10. 备份
+## 11. 备份
 
 选择：
 
