@@ -19,7 +19,7 @@ MAP_ROWS=(
   "worker-r2|Cloudflare Worker R2 401 403 404 Bearer token install.sh bundle 构建部署|worker/src/index.ts,worker/wrangler.jsonc,worker/package.json,.github/workflows/publish-r2.yml|worker/test/index.spec.ts,worker/package.json|worker/README.md,README.md|"
   "firewall-bbr|UFW 防火墙 SSH BBR sysctl 端口放行|lib/xray-manager-core.sh|tests/smoke-configs.sh|docs/USAGE.md,README.md|ufw,bbr,ssh"
   "release|发版 version checksum SHA256 changelog release bundle 打包|VERSION,XRAY_VERSION,SHA256SUMS,scripts/refresh-checksums.sh,.github/workflows/shellcheck.yml,.github/workflows/publish-r2.yml|scripts/maintainer-map.sh,.github/workflows/shellcheck.yml|CONTRIBUTING.md,CHANGELOG.md,README.md|"
-  "ci-tests|CI Actions ShellCheck test smoke 测试失败 workflow|.github/workflows/shellcheck.yml,.github/workflows/publish-r2.yml,tests/smoke-configs.sh|tests/offline-install.sh,tests/cloudflare-update.sh,tests/cloudflare-core-download.sh,tests/config-migration.sh,tests/manager-menu-update.sh,tests/xray-release-delay.sh|CONTRIBUTING.md,docs/MAINTAINER_GUIDE.md|"
+  "ci-tests|CI Actions ShellCheck test smoke 测试失败 workflow|.github/workflows/shellcheck.yml,.github/workflows/publish-r2.yml,tests/smoke-configs.sh|tests/maintainer-map.sh,tests/offline-install.sh,tests/cloudflare-update.sh,tests/cloudflare-core-download.sh,tests/config-migration.sh,tests/manager-menu-update.sh,tests/xray-release-delay.sh|CONTRIBUTING.md,docs/MAINTAINER_GUIDE.md|"
 )
 
 usage() {
