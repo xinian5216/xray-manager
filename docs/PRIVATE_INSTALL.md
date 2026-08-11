@@ -1,8 +1,32 @@
 # Private Repository 一键安装
 
-本仓库为 Private Repository，匿名 raw 下载不会成功。推荐使用只绑定 `xray-manager` 的 Fine-grained PAT，并只授予 `Contents: Read-only`。
+本仓库保持 Private。可以使用 Cloudflare 私有分发安装，也可以直接通过 GitHub API + Fine-grained PAT 安装。
 
-## 一次粘贴版
+## Cloudflare Worker + 私有 R2
+
+纯 IPv6、IPv4 和双栈 VPS 均可使用：
+
+```bash
+curl -fsSLo /tmp/xray-manager-install.sh \
+  https://xray-manager-download.xinian5216.workers.dev/install.sh &&
+sudo bash /tmp/xray-manager-install.sh
+```
+
+输入的是 Worker 的独立 `INSTALL_TOKEN`，不是 GitHub PAT。公开入口只返回引导脚本，AMD64 / ARM64 完整安装包保存在私有 R2，必须经过 Worker 鉴权。
+
+通过此方式安装后，管理器会记录更新来源：
+
+```bash
+sudo xraym --self-update
+```
+
+更新时再次输入安装密钥，密钥不会保存到 VPS 配置。
+
+## GitHub API + Fine-grained PAT
+
+GitHub API 可达时，推荐使用只绑定 `xray-manager`、仅授予 `Contents: Read-only` 的 Fine-grained PAT。
+
+### 一次粘贴版
 
 ```bash
 read -rsp "GitHub Token: " GH_TOKEN; echo; export GH_TOKEN; \
@@ -25,10 +49,12 @@ Launcher: /usr/local/sbin/xraym
 Core:     /usr/local/lib/xray-manager/xray-manager-core.sh
 ```
 
-## 更新
+## 强制指定更新来源
 
 ```bash
 sudo xraym --self-update
+sudo xraym --self-update-cloudflare
+sudo xraym --self-update-github
 ```
 
 更新流程：
@@ -40,7 +66,7 @@ sudo xraym --self-update
 5. 对 Launcher 与 Core 执行 `bash -n`。
 6. 更新本机文件。
 
-## IPv6-only
+## GitHub 方式的 IPv6-only 注意事项
 
 若 GitHub API 可通过原生 IPv6 访问，可直接安装。若 GitHub 链路不可达，可以给 bootstrap 指定 IPv6 可达的 HTTP / SOCKS5 代理：
 
@@ -51,3 +77,5 @@ bash /tmp/xray-manager-install.sh \
 ```
 
 如果 VPS 既无法访问 GitHub，又没有 NAT64 或任何 IPv6 可达代理，在线 bootstrap 无法取得私有仓库文件。
+
+此时应使用本文开头的 Cloudflare 入口；只有 Worker 也不可达时，才需要手动上传完整离线包。
