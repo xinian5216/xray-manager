@@ -3,8 +3,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-PROJECT_VERSION="1.2.4"
-CORE_VERSION="1.2.0"
+PROJECT_VERSION="1.3.0"
+CORE_VERSION="1.3.0"
 REPOSITORY="xinian5216/xray-manager"
 REF="${XRAY_MANAGER_REF:-main}"
 API_BASE="https://api.github.com/repos/${REPOSITORY}/contents"

@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.2.0"
+SCRIPT_VERSION="1.3.0"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -661,6 +661,226 @@ EOF
   rc-update add xray default >/dev/null 2>&1 || rc-update add xray >/dev/null 2>&1 || true
 }
 
+offline_sha256_file() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$file" | awk '{print $NF}'
+  else
+    printf 'unavailable'
+  fi
+}
+
+offline_extract_xray() {
+  local archive="$1" out="$2"
+  rm -f "$out"
+
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -p "$archive" xray >"$out" 2>/dev/null ||
+      unzip -p "$archive" ./xray >"$out" 2>/dev/null || true
+  elif command -v bsdtar >/dev/null 2>&1; then
+    bsdtar -xOf "$archive" xray >"$out" 2>/dev/null ||
+      bsdtar -xOf "$archive" ./xray >"$out" 2>/dev/null || true
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$archive" "$out" <<'PY'
+import sys
+import zipfile
+
+archive, output = sys.argv[1:]
+with zipfile.ZipFile(archive) as package:
+    names = package.namelist()
+    member = "xray" if "xray" in names else "./xray" if "./xray" in names else None
+    if member is None:
+        raise SystemExit("Xray archive does not contain a root xray executable")
+    with package.open(member) as source, open(output, "wb") as target:
+        target.write(source.read())
+PY
+  else
+    err "离线解压需要 unzip、bsdtar 或 python3，当前系统均未安装。"
+    return 1
+  fi
+
+  [[ -s "$out" ]] || {
+    err "Xray 压缩包中没有找到根目录下的 xray 可执行文件。"
+    return 1
+  }
+  chmod 755 "$out"
+}
+
+offline_validate_file() {
+  local file="$1" label="$2" minimum="${3:-1024}" size
+  [[ -f "$file" && -r "$file" ]] || {
+    err "$label 不存在或不可读：$file"
+    return 1
+  }
+  size="$(wc -c <"$file" 2>/dev/null || printf '0')"
+  [[ "$size" =~ ^[0-9]+$ ]] || size=0
+  (( size >= minimum )) || {
+    err "$label 文件异常小（${size} bytes）：$file"
+    return 1
+  }
+}
+
+configure_systemd_offline_service() {
+  local unit="/etc/systemd/system/xray.service"
+  local dropin="/etc/systemd/system/xray.service.d/20-xray-manager-offline.conf"
+  local service_user="root"
+  if id nobody >/dev/null 2>&1; then
+    service_user="nobody"
+  fi
+
+  if [[ ! -f "$unit" && ! -f /usr/lib/systemd/system/xray.service && ! -f /lib/systemd/system/xray.service ]]; then
+    cat >"$unit" <<EOF
+[Unit]
+Description=Xray Service
+Documentation=https://github.com/XTLS/Xray-core
+After=network.target nss-lookup.target
+
+[Service]
+User=$service_user
+Group=$XRAY_RUN_GROUP
+Environment=XRAY_LOCATION_ASSET=$ASSET_DIR
+ExecStart=$XRAY_BIN run -confdir $CONF_DIR
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  else
+    mkdir -p "$(dirname "$dropin")"
+    cat >"$dropin" <<EOF
+[Service]
+Environment=XRAY_LOCATION_ASSET=$ASSET_DIR
+ExecStart=
+ExecStart=$XRAY_BIN run -confdir $CONF_DIR
+EOF
+  fi
+
+  systemctl daemon-reload
+  systemctl enable xray >/dev/null 2>&1 || true
+}
+
+configure_openrc_offline_service() {
+  local service_user="root"
+  if id nobody >/dev/null 2>&1; then
+    service_user="nobody"
+  fi
+  if [[ ! -f /etc/init.d/xray ]]; then
+    cat >/etc/init.d/xray <<EOF
+#!/sbin/openrc-run
+description="Xray Service"
+command="$XRAY_BIN"
+command_args="run -confdir $CONF_DIR"
+command_user="$service_user:$XRAY_RUN_GROUP"
+command_background="yes"
+pidfile="/run/xray.pid"
+start_stop_daemon_args="--make-pidfile"
+export XRAY_LOCATION_ASSET="$ASSET_DIR"
+
+depend() {
+  need net
+  after firewall
+}
+EOF
+    chmod 755 /etc/init.d/xray
+  fi
+  configure_openrc_confdir
+}
+
+configure_offline_service() {
+  case "$INIT_SYS" in
+    systemd) configure_systemd_offline_service ;;
+    openrc) configure_openrc_offline_service ;;
+    *)
+      err "离线安装当前支持 systemd 和 OpenRC。"
+      return 1
+      ;;
+  esac
+}
+
+offline_import_xray() {
+  local archive="$1" geoip="$2" geosite="$3"
+  local tmp backup stamp
+
+  offline_validate_file "$archive" "Xray 压缩包" 1024 || return 1
+  offline_validate_file "$geoip" "GeoIP" 1024 || return 1
+  offline_validate_file "$geosite" "GeoSite" 1024 || return 1
+
+  detect_platform
+  ensure_layout
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/assets"
+  offline_extract_xray "$archive" "$tmp/xray" || { rm -rf "$tmp"; return 1; }
+  install -m 644 "$geoip" "$tmp/assets/geoip.dat"
+  install -m 644 "$geosite" "$tmp/assets/geosite.dat"
+
+  if ! "$tmp/xray" version >/dev/null 2>&1 && ! "$tmp/xray" -version >/dev/null 2>&1; then
+    err "压缩包中的 xray 无法在本机运行，通常是 CPU 架构不匹配或文件损坏。"
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  if ! XRAY_LOCATION_ASSET="$tmp/assets" "$tmp/xray" run -confdir "$CONF_DIR" -test >/dev/null 2>&1; then
+    err "离线 Xray + GeoData 无法通过当前配置测试，未写入系统。"
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  backup="$BACKUP_DIR/offline-payload-$stamp"
+  mkdir -p "$backup"
+  if [[ -f "$XRAY_BIN" ]]; then
+    cp -a "$XRAY_BIN" "$backup/xray"
+  fi
+  if [[ -f "$ASSET_DIR/geoip.dat" ]]; then
+    cp -a "$ASSET_DIR/geoip.dat" "$backup/geoip.dat"
+  fi
+  if [[ -f "$ASSET_DIR/geosite.dat" ]]; then
+    cp -a "$ASSET_DIR/geosite.dat" "$backup/geosite.dat"
+  fi
+
+  service_stop >/dev/null 2>&1 || true
+  mkdir -p "$(dirname "$XRAY_BIN")"
+  install -m 755 "$tmp/xray" "${XRAY_BIN}.new"
+  install -m 644 "$tmp/assets/geoip.dat" "$ASSET_DIR/geoip.dat.new"
+  install -m 644 "$tmp/assets/geosite.dat" "$ASSET_DIR/geosite.dat.new"
+  mv -f "${XRAY_BIN}.new" "$XRAY_BIN"
+  mv -f "$ASSET_DIR/geoip.dat.new" "$ASSET_DIR/geoip.dat"
+  mv -f "$ASSET_DIR/geosite.dat.new" "$ASSET_DIR/geosite.dat"
+
+  if ! configure_offline_service || ! test_config || ! service_restart; then
+    err "离线文件已导入，但服务启动失败。旧文件备份位于：$backup"
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  rm -rf "$tmp"
+  ok "离线安装完成，全程未访问网络。"
+  echo "Xray SHA256   : $(offline_sha256_file "$XRAY_BIN")"
+  echo "GeoIP SHA256  : $(offline_sha256_file "$ASSET_DIR/geoip.dat")"
+  echo "GeoSite SHA256: $(offline_sha256_file "$ASSET_DIR/geosite.dat")"
+  echo "旧文件备份    : $backup"
+  "$XRAY_BIN" version 2>/dev/null | head -n 1 || "$XRAY_BIN" -version 2>/dev/null | head -n 1 || true
+}
+
+offline_import_menu() {
+  local archive geoip geosite
+  echo "========== 完全离线安装 / 导入 =========="
+  echo "此流程不会调用 curl、wget、apt、apk 或其他网络下载。"
+  echo "请事先上传与本机架构匹配的 Xray ZIP、geoip.dat 和 geosite.dat。"
+  archive="$(ask_required "Xray ZIP 路径")"
+  geoip="$(ask_required "geoip.dat 路径")"
+  geosite="$(ask_required "geosite.dat 路径")"
+  offline_import_xray "$archive" "$geoip" "$geosite"
+}
+
 install_or_repair_xray() {
   ensure_layout
   load_network_state
@@ -717,7 +937,7 @@ need_xray() {
 
 test_config_dir() {
   local dir="$1"
-  "$XRAY_BIN" run -confdir "$dir" -test
+  XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -confdir "$dir" -test
 }
 
 test_config() {
@@ -2383,6 +2603,7 @@ main_menu() {
     echo "12) 备份 / 恢复"
     echo "13) 系统信息"
     echo "14) IPv6-only / NAT64 网络助手"
+    echo "15) 完全离线安装 / 导入 Xray + GeoData"
     echo "0) 退出"
     echo "=================================================="
 
@@ -2408,6 +2629,7 @@ main_menu() {
       12) backup_menu ;;
       13) system_info; pause ;;
       14) ipv6_only_menu ;;
+      15) offline_import_menu; pause ;;
       0) echo "Bye."; exit 0 ;;
       *) warn "无效选择。"; sleep 1 ;;
     esac
