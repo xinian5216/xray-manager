@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.3.0** · Core：**v1.3.0**
+> 当前项目版本：**v1.4.0** · Core：**v1.4.0**
 
 ## 核心功能
 
@@ -15,26 +15,82 @@
 - REALITY 共享 CDN target 风险检测、随机化回落限速
 - UFW、BBR、日志、配置测试、备份恢复
 - IPv6-only、NAT64 / DNS64、IPv6 可达下载代理
+- Cloudflare Worker + 私有 R2 的 IPv4 / IPv6 一键安装与后续自更新
 - 完全离线导入 Xray ZIP、GeoIP 与 GeoSite
 
-## 纯 IPv6 VPS：首次安装先看这里
+## 快速安装
 
-如果 VPS 没有 IPv4、NAT64 或可用代理，`api.github.com`、XTLS 安装器及 GeoData 下载链路可能无法访问。此时普通私有仓库一键命令会在下载 `install.sh` 之前失败；Core 内部的 IPv6 检测还没有机会运行。
+### 方式一：Cloudflare Worker + 私有 R2（纯 IPv6 首选）
 
-不要只上传 `install.sh`，因为它仍然需要访问 GitHub。根据条件选择下面一种方式。
+这是没有 NAT64 的 IPv6-only VPS 的推荐入口，也适用于 IPv4 和双栈机器：
 
-### 方案 A：完全离线安装（推荐）
+```bash
+curl -fsSLo /tmp/xray-manager-install.sh \
+  https://xray-manager-download.xinian5216.workers.dev/install.sh &&
+sudo bash /tmp/xray-manager-install.sh
+```
 
-先在有网络的电脑上准备并上传到 VPS：
+按提示输入独立的 Cloudflare 安装密钥。它不是 GitHub PAT，不要把密钥写进命令、README 或仓库。
+
+当前分发支持：
+
+| VPS 架构 | 离线包 |
+| --- | --- |
+| `x86_64` / `amd64` | `latest-amd64.tar.gz` |
+| `aarch64` / `arm64` | `latest-arm64.tar.gz` |
+
+VPS 需要预先具备 `curl`、`tar`，以及 `unzip`、`bsdtar`、Python 3 中至少一种 ZIP 读取工具。引导脚本会：
+
+1. 通过 Cloudflare 的 IPv4 / IPv6 边缘获取公开入口。
+2. 使用 Bearer 安装密钥访问 Worker 后的私有 R2 对象。
+3. 根据 CPU 架构下载完整离线包与 SHA256。
+4. 校验压缩包，解压仓库、Xray 和 GeoData。
+5. 调用 `offline-install.sh` 完成本地安装，安装阶段不再访问其他外网。
+6. 记录 Cloudflare 更新来源，以后 `xraym --self-update` 继续使用同一通道。
+
+GitHub Actions 会在相关文件合并到 `main` 后，使用经过配置冒烟测试的固定 Xray 版本重新构建两个架构的包，并覆盖 R2 中的五个对象。R2 保持私有，只有 `public/install.sh` 通过 Worker 公开读取；安装包必须通过 Worker 密钥访问。
+
+测试公开入口：
+
+```bash
+curl -6I \
+  https://xray-manager-download.xinian5216.workers.dev/install.sh
+```
+
+不带密钥访问 `/releases/latest-amd64.tar.gz` 返回 `401` 属于正常保护行为。
+
+### 方式二：私有 GitHub 一键安装
+
+GitHub API 可达时，也可以从 Private Repository 安装。创建只针对 `xray-manager`、仅授予 `Contents: Read-only` 的 Fine-grained PAT：
+
+```bash
+read -rsp "GitHub Token: " GH_TOKEN; echo; export GH_TOKEN; \
+curl -fsSL \
+  -H "Authorization: Bearer $GH_TOKEN" \
+  -H "Accept: application/vnd.github.raw+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "https://api.github.com/repos/xinian5216/xray-manager/contents/install.sh?ref=main" \
+  -o /tmp/xray-manager-install.sh && \
+bash /tmp/xray-manager-install.sh --run; \
+rc=$?; rm -f /tmp/xray-manager-install.sh; unset GH_TOKEN; (exit $rc)
+```
+
+这种方式的安装和后续 `xraym --self-update` 都需要能够访问 `api.github.com`，或者设置 `XRAY_DOWNLOAD_PROXY`。
+
+## 纯 IPv6 VPS：其他备用方式
+
+如果 Worker 入口也无法访问，可以使用真正的手动离线导入，或借助另一台双栈 VPS 建立临时代理。
+
+### 完全手动离线导入
+
+先在有网络的电脑上准备并上传：
 
 1. 本仓库 ZIP，并在 VPS 上解压。
-2. 与 VPS CPU 架构匹配的官方 `Xray-linux-*.zip`。
+2. 与 VPS 架构匹配的官方 `Xray-linux-*.zip`。
 3. `geoip.dat`。
 4. `geosite.dat`。
 
-先在 VPS 执行 `uname -m` 确认架构：常见的 `x86_64` 对应 `Xray-linux-64.zip`，`aarch64` 对应 `Xray-linux-arm64-v8a.zip`。
-
-例如把三个资源文件放在 `/home/xinian/offline-bundle/`，然后进入解压后的仓库目录执行：
+例如将资源放在 `/home/xinian/offline-bundle/`：
 
 ```bash
 sudo bash offline-install.sh \
@@ -52,26 +108,15 @@ sudo bash offline-install.sh \
   --run
 ```
 
-离线安装器会：
-
-- 校验仓库内 Launcher 与 Core 的 SHA256。
-- 使用本机已有的 `unzip`、`bsdtar` 或 Python 3 读取 ZIP，不联网安装依赖。
-- 验证 Xray 能否在当前 CPU 架构运行。
-- 使用上传的 GeoData 测试现有配置，通过后才写入正式路径。
-- 配置 systemd / OpenRC 服务，并备份已有 Xray 与 GeoData。
-- 安装 `xraym` Launcher 与 Core。
-
-该流程不会调用 `curl`、`wget`、`apt`、`apk` 或其他网络下载。若系统连 ZIP 解压工具和 Python 3 都没有，需要把其中一种工具也提前离线安装好。
-
-已经安装了 `xraym` 时，也可在主菜单选择：
+该流程不会调用网络下载或包管理器。已经安装 `xraym` 时，也可在主菜单选择：
 
 ```text
 15) 完全离线安装 / 导入 Xray + GeoData
 ```
 
-### 方案 B：通过双栈 VPS 建立临时 SSH SOCKS5
+### 临时 SSH SOCKS5
 
-纯 IPv6 VPS 能访问另一台双栈 VPS 的 IPv6 时，可建立只监听本机的临时代理：
+纯 IPv6 VPS 能访问另一台双栈 VPS 的 IPv6 时：
 
 ```bash
 ssh -6 -fNT \
@@ -82,48 +127,13 @@ ssh -6 -fNT \
 export XRAY_DOWNLOAD_PROXY='socks5h://127.0.0.1:1080'
 ```
 
-首次下载 `install.sh` 的 `curl` 本身也必须添加：
+首次获取 GitHub 引导脚本的 `curl` 也必须使用 `-x "$XRAY_DOWNLOAD_PROXY"`。
 
-```bash
-curl -x "$XRAY_DOWNLOAD_PROXY" ...
-```
+### NAT64 / DNS64 与 WARP
 
-下载后执行：
+DNS64 只负责合成 AAAA，NAT64 才负责把 IPv6 流量转换到 IPv4。服务商没有 NAT64 网关时，只改 DNS 仍然不能访问 IPv4-only 资源。
 
-```bash
-bash /tmp/xray-manager-install.sh --proxy "$XRAY_DOWNLOAD_PROXY"
-sudo env XRAY_DOWNLOAD_PROXY="$XRAY_DOWNLOAD_PROXY" xraym
-```
-
-### NAT64 / DNS64 注意事项
-
-DNS64 只负责合成 AAAA 记录，NAT64 才负责把 IPv6 流量转换到 IPv4。只修改 DNS、但服务商没有提供 NAT64 网关，仍然无法访问 IPv4-only 资源。优先使用服务商明确提供的 NAT64/DNS64；不要盲目修改系统 DNS。
-
-WARP 也能提供 IPv4 出口，但会改变接口、路由和 DNS，远程操作存在 SSH 失联风险，因此不作为自动安装的默认方案。
-
-完全离线机器以后执行 `xraym --self-update` 仍然需要 GitHub 网络或代理；没有网络时，请上传新版仓库 ZIP，重新运行 `offline-install.sh`。
-
-## 安装方式一：私有仓库一键安装
-
-仓库保持 **Private**。建议创建只针对 `xray-manager` 的 Fine-grained PAT，并只授予 `Contents: Read-only`。
-
-```bash
-read -rsp "GitHub Token: " GH_TOKEN; echo; export GH_TOKEN; \
-curl -fsSL \
-  -H "Authorization: Bearer $GH_TOKEN" \
-  -H "Accept: application/vnd.github.raw+json" \
-  -H "X-GitHub-Api-Version: 2022-11-28" \
-  "https://api.github.com/repos/xinian5216/xray-manager/contents/install.sh?ref=main" \
-  -o /tmp/xray-manager-install.sh && \
-bash /tmp/xray-manager-install.sh --run; \
-rc=$?; rm -f /tmp/xray-manager-install.sh; unset GH_TOKEN; (exit $rc)
-```
-
-安装完成后：
-
-```bash
-sudo xraym
-```
+WARP 可以提供 IPv4 出口，但会修改接口、路由和 DNS，远程操作存在 SSH 失联风险，因此不作为自动安装默认方案。
 
 ## 安装方式二：手动下载和运行
 
@@ -135,8 +145,10 @@ sudo xraym
 | **lib/xray-manager-core.sh** | 完整交互菜单和 Xray 管理功能 | 必需 |
 | **SHA256SUMS** | 校验文件是否完整 | 推荐 |
 | **VERSION** | 查看仓库项目版本 | 可选 |
+| **XRAY_VERSION** | R2 与测试共同使用的 Xray 固定版本 | 发布维护 |
 | **install.sh** | 私有仓库一键安装器 | 手动安装不需要 |
 | **offline-install.sh** | Xray + GeoData 完全离线安装器 | 纯离线首次安装必需 |
+| **cloudflare-install.sh** | Worker + 私有 R2 引导脚本 | Cloudflare 安装入口 |
 
 ### 1. 下载文件
 
@@ -183,11 +195,20 @@ sudo bash lib/xray-manager-core.sh
 
 ## 更新
 
-自更新：
+按安装来源自动选择 GitHub 或 Cloudflare：
 
 ```bash
 sudo xraym --self-update
 ```
+
+也可以强制指定：
+
+```bash
+sudo xraym --self-update-cloudflare
+sudo xraym --self-update-github
+```
+
+Cloudflare 更新会再次提示输入安装密钥，密钥不会持久保存。它只更新 Xray Manager Launcher 与 Core；Xray-core 和 GeoData 仍通过菜单中的独立更新功能管理。
 
 查看项目 / Core 版本：
 
@@ -213,10 +234,12 @@ REALITY 会把未通过认证的连接转发到 `target` 以维持正常 TLS 站
 ## 架构
 
 ```text
+Cloudflare Worker → 私有 R2 离线包
+            ↓ IPv4 / IPv6 鉴权分发
 xray-manager.sh
-    ↓ Launcher / Private Repo Updater
+            ↓ Launcher / Cloudflare 或 Private Repo Updater
 lib/xray-manager-core.sh
-    ↓ 完整 Xray 管理核心
+            ↓ 完整 Xray 管理核心
 Xray-core / UFW / BBR / 配置文件
 ```
 
@@ -226,7 +249,10 @@ Xray-core / UFW / BBR / 配置文件
 .
 ├── xray-manager.sh
 ├── install.sh
+├── cloudflare-install.sh
+├── offline-install.sh
 ├── VERSION
+├── XRAY_VERSION
 ├── SHA256SUMS
 ├── lib/
 │   └── xray-manager-core.sh
@@ -237,8 +263,11 @@ Xray-core / UFW / BBR / 配置文件
 ├── scripts/
 │   └── refresh-checksums.sh
 ├── tests/
-│   └── smoke-configs.sh
+│   ├── smoke-configs.sh
+│   ├── offline-install.sh
+│   └── cloudflare-update.sh
 ├── .github/workflows/shellcheck.yml
+├── .github/workflows/publish-r2.yml
 ├── README.md
 ├── CHANGELOG.md
 ├── SECURITY.md
@@ -281,7 +310,7 @@ bash -n install.sh
 sha256sum -c SHA256SUMS
 ```
 
-GitHub Actions 还会执行版本一致性、SHA256、Bash 语法与 ShellCheck 检查，同时会下载固定版本的官方 Xray，对主要协议和传输生成结果执行真实配置测试。
+`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、离线导入和 `XRAY_VERSION` 指定版本的配置冒烟测试。`Publish offline bundles to R2` 使用同一个版本再次运行冒烟测试，成功后才构建并上传 AMD64 / ARM64 离线包。
 
 ## License
 
