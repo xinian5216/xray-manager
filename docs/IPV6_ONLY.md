@@ -76,6 +76,8 @@ sudo bash /tmp/xray-manager-install.sh
 
 通过该入口安装后，`xraym --self-update` 会记住 Cloudflare 更新来源；主菜单中的 Xray 安装/修复、Xray-core 更新和 GeoData 更新也会自动复用 Worker + R2，不再访问 GitHub/XTLS。更新时再次输入安装密钥即可，不需要代理、NAT64 或 WARP。
 
+主菜单 `16) 更新 Xray Manager 脚本` 等价于 `sudo xraym --self-update`。R2 离线包每天检查上游，但 Xray 新稳定版需经过 14 天观察期，GeoData 快照需经过 7 天观察期。SHA256、配置与 GeoData 测试全部通过后才会覆盖上一次可用包。
+
 如果机器原先已经安装 Xray，菜单 1 和离线安装流程会先识别 systemd / OpenRC 当前使用的配置。发现旧 `config.json` 或旧配置目录时，必须连续确认两次才会迁移；任意一次取消都不会覆盖配置或服务。迁移前备份保存到 `/etc/xray-manager/backups/pre-migration-时间/`，旧配置本身不会删除，且新目录必须通过 Xray 配置测试后才会切换。
 
 ### IPv6 可达代理

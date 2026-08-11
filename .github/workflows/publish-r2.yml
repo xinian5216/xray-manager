@@ -1,6 +1,10 @@
 name: Publish offline bundles to R2
 
 on:
+  schedule:
+    # Xray 官方 GeoData 每日更新后再刷新 R2（北京时间 08:30）。
+    - cron: "30 0 * * *"
+
   push:
     branches:
       - main
@@ -13,6 +17,7 @@ on:
       - "XRAY_VERSION"
       - "SHA256SUMS"
       - "lib/**"
+      - "scripts/select-xray-release.sh"
       - "tests/smoke-configs.sh"
       - ".github/workflows/publish-r2.yml"
 
@@ -33,6 +38,8 @@ jobs:
 
     env:
       R2_BUCKET: xray-manager-private
+      XRAY_RELEASE_DELAY_DAYS: "14"
+      GEODATA_RELEASE_DELAY_DAYS: "7"
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -73,14 +80,34 @@ jobs:
 
           sha256sum -c SHA256SUMS
 
-      - name: Download pinned official Xray packages
+      - name: Resolve mature stable Xray and download packages
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
 
           mkdir -p downloads
-          XRAY_VERSION="$(tr -d '[:space:]' < XRAY_VERSION)"
+          PINNED_XRAY_VERSION="$(tr -d '[:space:]' < XRAY_VERSION)"
+          if ! curl -fsSL \
+            --retry 5 \
+            --retry-all-errors \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=100" \
+            -o downloads/xray-releases.json
+          then
+            printf '[]\n' > downloads/xray-releases.json
+          fi
+          XRAY_VERSION="$(bash scripts/select-xray-release.sh \
+            downloads/xray-releases.json \
+            "$PINNED_XRAY_VERSION" \
+            "$XRAY_RELEASE_DELAY_DAYS")"
           [[ "$XRAY_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          printf '%s\n' "$XRAY_VERSION" > XRAY_VERSION
+          echo "R2_XRAY_VERSION=$XRAY_VERSION" >> "$GITHUB_ENV"
+          echo "R2 将打包发布已满 ${XRAY_RELEASE_DELAY_DAYS} 天的稳定版：$XRAY_VERSION"
 
           curl -fL \
             --retry 5 \
@@ -99,6 +126,59 @@ jobs:
           unzip -t downloads/Xray-linux-64.zip
           unzip -t downloads/Xray-linux-arm64-v8a.zip
 
+      - name: Download and verify mature GeoData snapshot
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+
+          download_geodata() {
+            local name="$1" expected actual attempt commit_sha cutoff
+            cutoff="$(date -u -d "$GEODATA_RELEASE_DELAY_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)"
+            commit_sha="$(
+              curl -fsSL \
+                --retry 5 \
+                --retry-all-errors \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/commits?sha=release&path=${name}.dat&until=${cutoff}&per_page=1" |
+                jq -r '.[0].sha // empty'
+            )"
+            [[ "$commit_sha" =~ ^[[:xdigit:]]{40}$ ]] || {
+              echo "::error::Cannot resolve a mature ${name}.dat commit" >&2
+              return 1
+            }
+
+            for attempt in 1 2 3; do
+              curl -fsSL \
+                --retry 5 \
+                --retry-all-errors \
+                "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/${commit_sha}/${name}.dat.sha256sum" \
+                -o "downloads/${name}.dat.sha256sum"
+              curl -fsSL \
+                --retry 5 \
+                --retry-all-errors \
+                "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/${commit_sha}/${name}.dat" \
+                -o "downloads/${name}.dat"
+
+              expected="$(awk '{print $1; exit}' "downloads/${name}.dat.sha256sum")"
+              actual="$(sha256sum "downloads/${name}.dat" | awk '{print $1}')"
+              if [[ "$expected" =~ ^[[:xdigit:]]{64}$ && "$expected" == "$actual" ]]; then
+                echo "Verified ${name}.dat from mature commit ${commit_sha}: $actual"
+                return 0
+              fi
+              echo "GeoData changed during download; retry $attempt/3" >&2
+              sleep 5
+            done
+            echo "::error::Unable to obtain a matching ${name}.dat checksum" >&2
+            return 1
+          }
+
+          download_geodata geoip
+          download_geodata geosite
+
       - name: Test packaged Xray version
         shell: bash
         run: |
@@ -106,7 +186,25 @@ jobs:
           mkdir -p /tmp/xray-r2-test
           unzip -q downloads/Xray-linux-64.zip xray -d /tmp/xray-r2-test
           chmod +x /tmp/xray-r2-test/xray
-          XRAY_TEST_BIN=/tmp/xray-r2-test/xray bash tests/smoke-configs.sh
+          install -m 644 downloads/geoip.dat downloads/geosite.dat /tmp/xray-r2-test/
+          XRAY_LOCATION_ASSET=/tmp/xray-r2-test \
+            XRAY_TEST_BIN=/tmp/xray-r2-test/xray \
+            bash tests/smoke-configs.sh
+
+          cat >/tmp/xray-r2-test/geodata-test.json <<'JSON'
+          {
+            "routing": {
+              "rules": [
+                {"type":"field","domain":["geosite:google"],"outboundTag":"direct"},
+                {"type":"field","ip":["geoip:private"],"outboundTag":"direct"}
+              ]
+            },
+            "outbounds": [{"tag":"direct","protocol":"freedom"}]
+          }
+          JSON
+          XRAY_LOCATION_ASSET=/tmp/xray-r2-test \
+            /tmp/xray-r2-test/xray run \
+              -config /tmp/xray-r2-test/geodata-test.json -test
 
       - name: Build offline bundles
         shell: bash
@@ -148,11 +246,11 @@ jobs:
             install -m 644 "$xray_zip" \
               "$payload/$(basename "$xray_zip")"
 
-            unzip -p "$xray_zip" geoip.dat \
-              > "$payload/geoip.dat"
+            install -m 644 downloads/geoip.dat \
+              "$payload/geoip.dat"
 
-            unzip -p "$xray_zip" geosite.dat \
-              > "$payload/geosite.dat"
+            install -m 644 downloads/geosite.dat \
+              "$payload/geosite.dat"
 
             test -s "$payload/geoip.dat"
             test -s "$payload/geosite.dat"
