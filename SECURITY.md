@@ -32,6 +32,20 @@ secrets/
 backups/
 ```
 
+## Cloudflare 与 GitHub Actions 密钥
+
+三类密钥必须分离：
+
+- Worker `INSTALL_TOKEN`：只用于 VPS 下载私有离线包。
+- R2 Access Key ID / Secret Access Key：只用于 GitHub Actions 写入指定 Bucket。
+- GitHub Fine-grained PAT：只用于直接读取 Private Repository。
+
+R2 API Token 应限制为 `xray-manager-private` Bucket 的 Object Read & Write，不要授予无关账户权限。R2 密钥只能保存为 GitHub Actions Secrets；Cloudflare Account ID 可以保存为普通 Repository Variable。
+
+不要把任何密钥写入 README、工作流 YAML、命令行 URL、Issue 或 Actions 日志。发现泄露后应立即轮换对应密钥；只更换 Worker `INSTALL_TOKEN` 不会影响 R2 上传密钥，反之亦然。
+
+Cloudflare 引导脚本将安装密钥写入权限为 600 的临时 curl 配置，任务结束后删除；管理器后续更新仍会重新提示，不持久保存安装密钥。
+
 ## 漏洞处理
 
 如果未来将项目公开，请避免直接在公开 Issue 中粘贴：

@@ -8,6 +8,7 @@ REF="${XRAY_MANAGER_REF:-main}"
 API_BASE="https://api.github.com/repos/${REPOSITORY}/contents"
 INSTALL_PATH="${XRAY_MANAGER_INSTALL_PATH:-/usr/local/sbin/xraym}"
 CORE_PATH="${XRAY_MANAGER_CORE_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"
+UPDATE_SOURCE_FILE="${XRAY_MANAGER_UPDATE_SOURCE_FILE:-/etc/xray-manager/manager_update_source}"
 DOWNLOAD_PROXY="${XRAY_DOWNLOAD_PROXY:-}"
 RUN_AFTER_INSTALL=0
 
@@ -154,6 +155,19 @@ install_pair() {
   fi
 }
 
+persist_github_update_source() {
+  local marker="$1"
+  printf 'github\n' >"$marker"
+
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    install -d -m 700 "$(dirname "$UPDATE_SOURCE_FILE")"
+    install -m 600 "$marker" "$UPDATE_SOURCE_FILE"
+  else
+    sudo install -d -m 700 "$(dirname "$UPDATE_SOURCE_FILE")"
+    sudo install -m 600 "$marker" "$UPDATE_SOURCE_FILE"
+  fi
+}
+
 TOKEN="$(get_token)" || {
   err "没有 GitHub Token，无法读取 Private Repository。"
   warn "Fine-grained PAT 只需给 xray-manager 仓库 Contents: Read。"
@@ -186,6 +200,7 @@ bash -n "$TMP/xray-manager.sh"
 bash -n "$TMP/lib/xray-manager-core.sh"
 
 install_pair "$TMP/xray-manager.sh" "$TMP/lib/xray-manager-core.sh"
+persist_github_update_source "$TMP/manager_update_source"
 ok "Xray Manager 项目版本 $VERSION 安装完成。"
 echo "Launcher: $INSTALL_PATH"
 echo "Core    : $CORE_PATH"

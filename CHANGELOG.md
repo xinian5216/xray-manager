@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.4.0 / Core v1.4.0 - 2026-08-11
+
+### Added
+- 新增 Cloudflare Worker + 私有 R2 的 IPv4 / IPv6 一键安装入口。
+- GitHub Actions 自动构建 AMD64 / ARM64 完整离线包，上传并验证五个 R2 对象。
+- Cloudflare 安装会记录管理器更新来源，`xraym --self-update` 可继续通过 Worker 鉴权更新 Launcher 与 Core。
+- 新增 `--self-update-cloudflare` 与 `--self-update-github` 强制更新选项。
+
+### Security and release
+- Worker 安装密钥、R2 写入密钥与 GitHub PAT 完全分离，不持久保存安装密钥。
+- 将 `cloudflare-install.sh` 纳入 SHA256、Bash 语法与 ShellCheck 校验。
+- R2 发布固定使用经过冒烟测试的 Xray v26.3.27，避免未经验证的最新版自动进入分发。
+
+### Docs
+- README、IPv6-only、Private Install 与 Security 文档补充 Cloudflare 分发、备用方式和密钥管理说明。
+
 ## v1.3.0 / Core v1.3.0 - 2026-08-10
 
 ### Added

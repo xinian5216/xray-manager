@@ -62,6 +62,22 @@ NAT64 才是真正把 IPv6 流量转换到 IPv4 网络的网关。
 
 ## 没有 NAT64 怎么办
 
+### Cloudflare Worker + 私有 R2（推荐）
+
+项目提供同时支持 IPv4 / IPv6 的公开引导入口，完整离线包保存在私有 R2，并由 Worker 校验独立安装密钥：
+
+```bash
+curl -fsSLo /tmp/xray-manager-install.sh \
+  https://xray-manager-download.xinian5216.workers.dev/install.sh &&
+sudo bash /tmp/xray-manager-install.sh
+```
+
+该方式不需要 VPS 访问 GitHub、XTLS 或 GeoData 下载站。引导脚本会根据 `x86_64/amd64` 或 `aarch64/arm64` 下载对应包、验证 SHA256，再进行本地离线安装。
+
+通过该入口安装后，`xraym --self-update` 会记住 Cloudflare 更新来源；更新时再次输入安装密钥即可。
+
+### IPv6 可达代理
+
 可以设置一个 IPv6 可达、同时能够访问 IPv4 网络的 HTTP 或 SOCKS5 代理。
 
 例如：
@@ -89,7 +105,7 @@ http://user:password@[2001:db8::10]:8080
 - GeoData 更新
 - GitHub / XTLS 下载
 
-## 完全离线安装
+### 完全手动离线安装
 
 没有 NAT64、代理或 WARP 时，可以上传仓库 ZIP、官方 Xray ZIP、`geoip.dat` 和 `geosite.dat`，解压仓库后运行：
 
@@ -159,9 +175,11 @@ WARP 会创建虚拟网络接口，并可能影响：
 因此脚本优先顺序是：
 
 ```text
-原生 IPv6
+Cloudflare Worker + 私有 R2
+→ 原生 IPv6 可达的上游
 → 已有 NAT64/DNS64
 → 可用 NAT64 + DNS64
 → IPv6 可达下载代理
+→ 手动完整离线导入
 → 用户自行决定是否配置 WARP
 ```

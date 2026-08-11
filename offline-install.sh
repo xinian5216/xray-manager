@@ -12,6 +12,7 @@ GEOSITE_FILE=""
 RUN_AFTER_INSTALL=0
 INSTALL_PATH="${XRAY_MANAGER_INSTALL_PATH:-/usr/local/sbin/xraym}"
 CORE_PATH="${XRAY_MANAGER_CORE_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"
+UPDATE_STATE_DIR="${XRAY_MANAGER_STATE_DIR:-/etc/xray-manager}"
 
 err() { printf '[x] %s\n' "$*" >&2; }
 ok() { printf '[✓] %s\n' "$*"; }
@@ -96,6 +97,25 @@ offline_import_xray "$XRAY_ZIP" "$GEOIP_FILE" "$GEOSITE_FILE"
 install -d -m 755 "$(dirname "$CORE_PATH")"
 install -m 755 "$ROOT_DIR/xray-manager.sh" "$INSTALL_PATH"
 install -m 755 "$ROOT_DIR/lib/xray-manager-core.sh" "$CORE_PATH"
+
+if [[ -n "${XRAY_MANAGER_UPDATE_SOURCE:-}" ]]; then
+  case "$XRAY_MANAGER_UPDATE_SOURCE" in
+    cloudflare|github) ;;
+    *) err "Invalid manager update source: $XRAY_MANAGER_UPDATE_SOURCE"; exit 1 ;;
+  esac
+  install -d -m 700 "$UPDATE_STATE_DIR"
+  printf '%s\n' "$XRAY_MANAGER_UPDATE_SOURCE" \
+    >"$UPDATE_STATE_DIR/manager_update_source"
+  chmod 600 "$UPDATE_STATE_DIR/manager_update_source"
+fi
+
+if [[ -n "${XRAY_MANAGER_CLOUDFLARE_URL:-}" ]]; then
+  install -d -m 700 "$UPDATE_STATE_DIR"
+  printf '%s\n' "${XRAY_MANAGER_CLOUDFLARE_URL%/}" \
+    >"$UPDATE_STATE_DIR/cloudflare_url"
+  chmod 600 "$UPDATE_STATE_DIR/cloudflare_url"
+fi
+
 ok "Xray Manager has been installed without network access."
 echo "Launcher: $INSTALL_PATH"
 echo "Core    : $CORE_PATH"

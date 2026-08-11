@@ -14,40 +14,47 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Bash syntax
         run: |
           bash -n xray-manager.sh
           bash -n lib/xray-manager-core.sh
           bash -n install.sh
           bash -n offline-install.sh
+          bash -n cloudflare-install.sh
           bash -n scripts/refresh-checksums.sh
           bash -n tests/smoke-configs.sh
           bash -n tests/offline-install.sh
+          bash -n tests/cloudflare-update.sh
       - name: Verify project version
         run: |
           test "$(tr -d '[:space:]' < VERSION)" = "$(sed -n 's/^PROJECT_VERSION="\(.*\)"/\1/p' xray-manager.sh | head -n1)"
           test "$(tr -d '[:space:]' < VERSION)" = "$(sed -n 's/^CORE_VERSION="\(.*\)"/\1/p' xray-manager.sh | head -n1)"
           test "$(tr -d '[:space:]' < VERSION)" = "$(sed -n 's/^SCRIPT_VERSION="\(.*\)"/\1/p' lib/xray-manager-core.sh | head -n1)"
+          grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' XRAY_VERSION
       - name: Verify SHA256SUMS
         run: sha256sum -c SHA256SUMS
       - name: Install ShellCheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: ShellCheck launchers
-        run: shellcheck -S warning xray-manager.sh install.sh offline-install.sh scripts/refresh-checksums.sh
+        run: shellcheck -S warning xray-manager.sh install.sh offline-install.sh cloudflare-install.sh scripts/refresh-checksums.sh
       - name: ShellCheck core
         run: |
           shellcheck -S warning lib/xray-manager-core.sh
           # The smoke test intentionally rebinds globals consumed by sourced Core functions.
           shellcheck -e SC2034 -S warning tests/smoke-configs.sh
           shellcheck -e SC2034 -S warning tests/offline-install.sh
+          shellcheck -S warning tests/cloudflare-update.sh
       - name: Offline import test
         run: bash tests/offline-install.sh
+      - name: Cloudflare manager update test
+        run: bash tests/cloudflare-update.sh
       - name: Xray configuration smoke tests
         run: |
+          XRAY_VERSION="$(tr -d '[:space:]' < XRAY_VERSION)"
           curl -fL --retry 3 \
             -o /tmp/Xray-linux-64.zip \
-            https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
+            "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
           unzip -q /tmp/Xray-linux-64.zip xray -d /tmp/xray-test
           chmod +x /tmp/xray-test/xray
           XRAY_TEST_BIN=/tmp/xray-test/xray bash tests/smoke-configs.sh

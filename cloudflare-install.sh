@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-BASE_URL="https://xray-manager-download.xinian5216.workers.dev"
+BASE_URL="${XRAY_MANAGER_CLOUDFLARE_URL:-https://xray-manager-download.xinian5216.workers.dev}"
+BASE_URL="${BASE_URL%/}"
 
 if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
   echo "请使用 root 权限运行：sudo bash $0"
@@ -102,6 +103,8 @@ fi
 
 echo "校验通过，开始离线安装……"
 
+XRAY_MANAGER_UPDATE_SOURCE=cloudflare \
+XRAY_MANAGER_CLOUDFLARE_URL="$BASE_URL" \
 bash "$INSTALLER" \
   --bundle-dir "$BUNDLE_DIR" \
   --run
