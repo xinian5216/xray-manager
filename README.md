@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.4.2** · Core：**v1.4.2**
+> 当前项目版本：**v1.4.3** · Core：**v1.4.3**
 
 ## 核心功能
 
@@ -18,6 +18,7 @@
 - Cloudflare Worker + 私有 R2 的 IPv4 / IPv6 一键安装与后续自更新
 - 完全离线导入 Xray ZIP、GeoIP 与 GeoSite
 - 已有 Xray 配置安全迁移、双重确认和迁移前完整备份
+- 主菜单直接更新 Xray Manager Launcher 与 Core
 
 ## 快速安装
 
@@ -224,6 +225,27 @@ sudo xraym --self-update-github
 
 Cloudflare 更新会再次提示输入安装密钥，密钥不会持久保存。`xraym --self-update` 更新 Launcher 与 Core；Xray-core 和 GeoData 仍通过菜单中的独立功能管理，但通过 Cloudflare 入口安装的机器会自动让这些功能复用同一个 Worker + R2 通道。
 
+不想记命令时，可直接在主菜单选择：
+
+```text
+16) 更新 Xray Manager 脚本
+```
+
+它会调用 Launcher 的同一套自更新逻辑，按机器原本记录的 GitHub / Cloudflare 来源更新；完成后可以立即重新载入新版菜单。
+
+### R2 中 Xray 与 GeoData 的更新策略
+
+Worker 本身不保存或打包 Xray，它只负责鉴权并读取私有 R2。R2 的 `latest-amd64.tar.gz` / `latest-arm64.tar.gz` 才包含 Manager、对应架构的 Xray ZIP、`geoip.dat` 和 `geosite.dat`。
+
+`Publish offline bundles to R2` 每天北京时间 08:30 自动运行，也会在相关代码合并到 `main` 后运行：
+
+1. 从 XTLS/Xray-core Releases 中选择正式稳定版，不采用 Pre-release；新稳定版发布满 14 天后才允许进入 R2，期间继续使用上一版。
+2. 下载 AMD64 / ARM64 官方 Xray ZIP。
+3. 按 Xray 官方构建采用的来源，选择 Loyalsoldier `v2ray-rules-dat` 至少 7 天前的 GeoIP / GeoSite 快照，并校验其 SHA256。
+4. 用待发布的 Xray 对全部配置和 GeoData 做测试；只有全部通过才覆盖 R2 对象。
+
+因此 Xray Core 和规则库都不会在发布当天盲目追新；Core 观察 14 天，GeoData 观察 7 天。观察期结束后，上游下载失败、哈希不一致或新 Core 与现有配置不兼容时，工作流仍会失败，R2 继续保留上一次已验证的包。仓库里的 `XRAY_VERSION` 作为 CI 基线和上游 API 不可用时的回退版本。
+
 查看项目 / Core 版本：
 
 ```bash
@@ -324,7 +346,7 @@ bash -n install.sh
 sha256sum -c SHA256SUMS
 ```
 
-`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、已有配置迁移、离线导入和 `XRAY_VERSION` 指定版本的配置冒烟测试。`Publish offline bundles to R2` 使用同一个版本再次运行冒烟测试，成功后才构建并上传 AMD64 / ARM64 离线包。
+`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、离线导入和 `XRAY_VERSION` 基线版本的配置冒烟测试。`Publish offline bundles to R2` 每天选择发布已满 14 天的最新稳定版 Xray 和至少 7 天前的 GeoData 快照，再次运行配置与 GeoData 测试，成功后才构建并上传 AMD64 / ARM64 离线包。
 
 ## License
 

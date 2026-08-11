@@ -23,11 +23,14 @@ jobs:
           bash -n offline-install.sh
           bash -n cloudflare-install.sh
           bash -n scripts/refresh-checksums.sh
+          bash -n scripts/select-xray-release.sh
           bash -n tests/smoke-configs.sh
           bash -n tests/offline-install.sh
           bash -n tests/cloudflare-update.sh
           bash -n tests/cloudflare-core-download.sh
           bash -n tests/config-migration.sh
+          bash -n tests/manager-menu-update.sh
+          bash -n tests/xray-release-delay.sh
       - name: Verify project version
         run: |
           test "$(tr -d '[:space:]' < VERSION)" = "$(sed -n 's/^PROJECT_VERSION="\(.*\)"/\1/p' xray-manager.sh | head -n1)"
@@ -39,7 +42,7 @@ jobs:
       - name: Install ShellCheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: ShellCheck launchers
-        run: shellcheck -S warning xray-manager.sh install.sh offline-install.sh cloudflare-install.sh scripts/refresh-checksums.sh
+        run: shellcheck -S warning xray-manager.sh install.sh offline-install.sh cloudflare-install.sh scripts/refresh-checksums.sh scripts/select-xray-release.sh
       - name: ShellCheck core
         run: |
           shellcheck -S warning lib/xray-manager-core.sh
@@ -49,6 +52,8 @@ jobs:
           shellcheck -S warning tests/cloudflare-update.sh
           shellcheck -e SC2034 -S warning tests/cloudflare-core-download.sh
           shellcheck -e SC2034 -S warning tests/config-migration.sh
+          shellcheck -e SC2034 -S warning tests/manager-menu-update.sh
+          shellcheck -S warning tests/xray-release-delay.sh
       - name: Offline import test
         run: bash tests/offline-install.sh
       - name: Cloudflare manager update test
@@ -57,6 +62,10 @@ jobs:
         run: bash tests/cloudflare-core-download.sh
       - name: Existing configuration migration test
         run: bash tests/config-migration.sh
+      - name: Manager menu update test
+        run: bash tests/manager-menu-update.sh
+      - name: Xray release delay policy test
+        run: bash tests/xray-release-delay.sh
       - name: Xray configuration smoke tests
         run: |
           XRAY_VERSION="$(tr -d '[:space:]' < XRAY_VERSION)"

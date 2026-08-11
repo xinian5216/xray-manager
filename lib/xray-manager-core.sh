@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.4.2"
+SCRIPT_VERSION="1.4.3"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -3132,6 +3132,31 @@ system_info() {
   fi
 }
 
+update_manager_script() {
+  local launcher="${XRAY_MANAGER_LAUNCHER_PATH:-/usr/local/sbin/xraym}"
+
+  if [[ ! -x "$launcher" ]]; then
+    launcher="$(command -v xraym 2>/dev/null || true)"
+  fi
+  if [[ -z "$launcher" || ! -x "$launcher" ]]; then
+    err "未找到 Xray Manager Launcher，无法从菜单自更新。"
+    warn "请重新运行 Cloudflare 或私有 GitHub 安装入口。"
+    return 1
+  fi
+
+  info "按当前安装来源更新 Xray Manager Launcher + Core..."
+  "$launcher" --self-update || {
+    err "Xray Manager 更新失败。"
+    return 1
+  }
+
+  ok "Xray Manager 更新流程已完成。"
+  if confirm "立即重新载入新版菜单？"; then
+    exec "$launcher"
+  fi
+  warn "当前仍是更新前的菜单进程；退出后重新运行 sudo xraym 即可载入新版。"
+}
+
 main_menu() {
   while true; do
     clear || true
@@ -3152,6 +3177,7 @@ main_menu() {
     echo "13) 系统信息"
     echo "14) IPv6-only / NAT64 网络助手"
     echo "15) 完全离线安装 / 导入 Xray + GeoData"
+    echo "16) 更新 Xray Manager 脚本"
     echo "0) 退出"
     echo "=================================================="
 
@@ -3178,6 +3204,7 @@ main_menu() {
       13) system_info; pause ;;
       14) ipv6_only_menu ;;
       15) offline_import_menu; pause ;;
+      16) update_manager_script; pause ;;
       0) echo "Bye."; exit 0 ;;
       *) warn "无效选择。"; sleep 1 ;;
     esac

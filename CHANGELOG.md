@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.4.3 / Core v1.4.3 - 2026-08-11
+
+### Added
+- 主菜单新增 `16) 更新 Xray Manager 脚本`，复用 Launcher 已记录的 GitHub / Cloudflare 更新来源，更新后可立即重新载入菜单。
+- R2 发布工作流每天检查 Xray 稳定版和 Xray 官方采用的 GeoIP / GeoSite 数据源。
+
+### Safety and tests
+- 不采用 Xray Pre-release；新稳定版经过 14 天观察期，GeoData 快照经过 7 天观察期，上游 API 不可用时 Core 回退到仓库 `XRAY_VERSION` 基线。
+- GeoData 下载校验上游 SHA256，待发布 Xray 必须同时通过现有配置和 GeoData 解析测试后才覆盖 R2。
+- 新增菜单自更新调用测试，并将其加入 Bash 语法和 ShellCheck 校验。
+
 ## v1.4.2 / Core v1.4.2 - 2026-08-11
 
 ### Fixed
