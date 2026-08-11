@@ -188,7 +188,7 @@ sudo xraym
 
 ### 已安装 Xray 时的安全迁移
 
-如果 VPS 已经安装过 Xray，菜单 `1) 一键安装 / 修复 Xray` 会先读取 systemd / OpenRC 的启动参数，并兼容识别常见的 `/usr/local/etc/xray/config.json` 和 `/etc/xray/config.json`。发现脚本接管前的单文件配置或配置目录时：
+如果 VPS 已经安装过 Xray，菜单 `1) 一键安装 / 修复 Xray` 会先读取 systemd / OpenRC 的启动参数，并兼容识别常见的 `/usr/local/etc/xray/config.json` 和 `/etc/xray/config.json`。旧 Xray 即使安装在 `/usr/bin/xray` 等非 Manager 路径，也会使用服务当前实际调用的二进制完成迁移校验。发现脚本接管前的单文件配置或配置目录时：
 
 1. 连续要求两次确认；任意一次拒绝都会中止安装/修复，不修改配置、服务或 Xray 文件。
 2. 将旧配置、当前 Manager 配置目录、Xray 可执行文件和服务定义/状态备份到 `/etc/xray-manager/backups/pre-migration-时间/`。

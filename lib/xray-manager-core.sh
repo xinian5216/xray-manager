@@ -879,6 +879,72 @@ extract_xray_config_source() {
   return 1
 }
 
+extract_xray_binary_from_command() {
+  local command_line="$1" token
+  local -a tokens=()
+  local IFS=' '
+
+  command_line="${command_line//;/ }"
+  command_line="${command_line//\{/ }"
+  command_line="${command_line//\}/ }"
+  read -r -a tokens <<<"$command_line"
+
+  for token in "${tokens[@]}"; do
+    token="${token//\"/}"
+    token="${token//\'/}"
+    case "$token" in
+      path=*|argv\[\]=*|command=*) token="${token#*=}" ;;
+    esac
+    if [[ "${token##*/}" == "xray" && -x "$token" ]]; then
+      printf '%s' "$token"
+      return 0
+    fi
+  done
+  return 1
+}
+
+discover_existing_xray_binary() {
+  local path="${XRAY_MANAGER_LEGACY_XRAY_BIN:-}" command_line=""
+
+  if [[ -n "$path" ]]; then
+    [[ -x "$path" ]] || {
+      err "指定的旧 Xray 不可执行：$path"
+      return 1
+    }
+    printf '%s' "$path"
+    return 0
+  fi
+
+  if [[ "$INIT_SYS" == "systemd" ]] && command -v systemctl >/dev/null 2>&1; then
+    command_line="$(systemctl show xray -p ExecStart --value 2>/dev/null || true)"
+    path="$(extract_xray_binary_from_command "$command_line" 2>/dev/null || true)"
+    if [[ -n "$path" ]]; then
+      printf '%s' "$path"
+      return 0
+    fi
+  elif [[ "$INIT_SYS" == "openrc" ]]; then
+    for path in /etc/conf.d/xray /etc/init.d/xray; do
+      [[ -r "$path" ]] || continue
+      command_line="$(tr '\n' ' ' <"$path")"
+      path="$(extract_xray_binary_from_command "$command_line" 2>/dev/null || true)"
+      if [[ -n "$path" ]]; then
+        printf '%s' "$path"
+        return 0
+      fi
+    done
+  fi
+
+  for path in "$XRAY_BIN" /usr/bin/xray /opt/xray/xray; do
+    if [[ -x "$path" ]]; then
+      printf '%s' "$path"
+      return 0
+    fi
+  done
+  path="$(command -v xray 2>/dev/null || true)"
+  [[ -n "$path" && -x "$path" ]] || return 1
+  printf '%s' "$path"
+}
+
 discover_existing_xray_config() {
   local discovered="" kind="" path="" command_line=""
 
@@ -986,12 +1052,14 @@ backup_xray_service_state() {
 
 migrate_existing_xray_config() {
   local kind="$1" source="$2"
+  local test_xray="${3:-$XRAY_BIN}"
   local stamp backup stage previous first_json
 
   source="${source%/}"
   echo
   warn "检测到脚本接管前的 Xray 配置：$source"
   echo "迁移目标：$CONF_DIR"
+  echo "配置校验：$test_xray"
   echo "原配置只会复制，不会删除；当前目标目录和服务状态会先完整备份。"
   echo
   confirm "第一次确认：将现有 Xray 配置迁移给 Xray Manager 管理？" || {
@@ -1018,8 +1086,8 @@ migrate_existing_xray_config() {
     }
   fi
   backup_xray_service_state "$backup"
-  if [[ -f "$XRAY_BIN" ]]; then
-    cp -a "$XRAY_BIN" "$backup/xray" || true
+  if [[ -f "$test_xray" ]]; then
+    cp -a "$test_xray" "$backup/xray" || true
   fi
 
   if [[ "$kind" == "file" ]]; then
@@ -1050,7 +1118,7 @@ migrate_existing_xray_config() {
     fi
   fi
 
-  if ! XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" \
+  if ! XRAY_LOCATION_ASSET="$ASSET_DIR" "$test_xray" \
        run -confdir "$stage" -test >/dev/null 2>&1; then
     err "迁移后的配置测试失败，未覆盖 Manager 配置。"
     warn "原配置仍在：$source"
@@ -1091,15 +1159,20 @@ migrate_existing_xray_config() {
 }
 
 prepare_existing_xray_config() {
-  local discovered kind source
-  xray_exists || return 0
+  local discovered kind source test_xray
   [[ -s "$CONFIG_MIGRATION_STATE_FILE" ]] && return 0
 
   discovered="$(discover_existing_xray_config || true)"
   [[ -n "$discovered" ]] || return 0
   IFS=$'\t' read -r kind source <<<"$discovered"
   [[ -n "$kind" && -n "$source" ]] || return 0
-  migrate_existing_xray_config "$kind" "$source"
+  test_xray="$(discover_existing_xray_binary || true)"
+  if [[ -z "$test_xray" ]]; then
+    err "检测到已有 Xray 配置，但找不到可用于校验的旧 Xray，已停止安装/修复。"
+    warn "可通过 XRAY_MANAGER_LEGACY_XRAY_BIN=/实际/xray/路径 明确指定。"
+    return 1
+  fi
+  migrate_existing_xray_config "$kind" "$source" "$test_xray"
 }
 
 configure_systemd_offline_service() {

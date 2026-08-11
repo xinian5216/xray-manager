@@ -4,6 +4,7 @@
 
 ### Fixed
 - 菜单 1 与离线安装在覆盖服务启动参数前，自动识别并迁移已有 Xray 单文件配置或配置目录。
+- 从 systemd / OpenRC 识别当前实际 Xray 二进制，兼容 `/usr/bin/xray` 等非 Manager 安装路径。
 - 兼容恢复被 v1.4.0 / v1.4.1 systemd drop-in 暂时隐藏的旧 `config.json`。
 
 ### Safety and tests

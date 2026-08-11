@@ -138,4 +138,24 @@ DISCOVERED="$(discover_existing_xray_config)"
   'argv[]=/usr/local/bin/xray run -config "/usr/local/etc/xray/config.json" ;')" == \
   $'file\t/usr/local/etc/xray/config.json' ]]
 
+# A pre-existing package-managed Xray may live outside the Manager binary path.
+# It must still protect and validate the old configuration before menu 1 runs.
+use_test_root alternate-binary
+ALTERNATE_XRAY="$TEST_ROOT/alternate-binary/usr-bin/xray"
+mkdir -p "$(dirname "$ALTERNATE_XRAY")"
+mv "$XRAY_BIN" "$ALTERNATE_XRAY"
+printf '{"inbounds":[{"tag":"alternate-binary"}]}\n' >"$XRAY_ROOT/config.json"
+printf '{"inbounds":[{"tag":"manager-before-alternate"}]}\n' >"$BASE_FILE"
+XRAY_MANAGER_LEGACY_XRAY_BIN="$ALTERNATE_XRAY"
+confirm() { return 0; }
+prepare_existing_xray_config
+unset XRAY_MANAGER_LEGACY_XRAY_BIN
+grep -q 'alternate-binary' "$BASE_FILE"
+BACKUP_PATH="$(sed -n 's/^backup=//p' "$CONFIG_MIGRATION_STATE_FILE")"
+cmp "$ALTERNATE_XRAY" "$BACKUP_PATH/xray"
+
+[[ "$(extract_xray_binary_from_command \
+  "path=$ALTERNATE_XRAY ; argv[]=$ALTERNATE_XRAY run -config /tmp/config.json ;")" == \
+  "$ALTERNATE_XRAY" ]]
+
 echo "Existing Xray configuration migration tests passed."
