@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.3.0 / Core v1.3.0 - 2026-08-10
+
+### Added
+- 新增 `offline-install.sh`，可从本地仓库、Xray ZIP、`geoip.dat` 与 `geosite.dat` 完成完全离线安装。
+- 主菜单新增“完全离线安装 / 导入 Xray + GeoData”，适用于没有 NAT64 的 IPv6-only VPS。
+- 离线导入会校验仓库 SHA256、Xray 可执行性与现有配置，全程不调用网络下载或包管理器。
+- 新增 systemd / OpenRC 离线服务配置、旧 payload 备份和离线导入测试。
+
+### Docs
+- README 增加纯 IPv6 首次引导、手动上传、SSH SOCKS5 与 NAT64/DNS64 说明。
+
 ## v1.2.4 / Core v1.2.0 - 2026-08-10
 
 ### Security
