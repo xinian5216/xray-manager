@@ -74,7 +74,7 @@ sudo bash /tmp/xray-manager-install.sh
 
 该方式不需要 VPS 访问 GitHub、XTLS 或 GeoData 下载站。引导脚本会根据 `x86_64/amd64` 或 `aarch64/arm64` 下载对应包、验证 SHA256，再进行本地离线安装。
 
-通过该入口安装后，`xraym --self-update` 会记住 Cloudflare 更新来源；更新时再次输入安装密钥即可。
+通过该入口安装后，`xraym --self-update` 会记住 Cloudflare 更新来源；主菜单中的 Xray 安装/修复、Xray-core 更新和 GeoData 更新也会自动复用 Worker + R2，不再访问 GitHub/XTLS。更新时再次输入安装密钥即可，不需要代理、NAT64 或 WARP。
 
 ### IPv6 可达代理
 
@@ -98,7 +98,7 @@ socks5h://[2001:db8::10]:1080
 http://user:password@[2001:db8::10]:8080
 ```
 
-该代理主要用于：
+该代理主要用于 GitHub 安装来源，或 Worker 暂时不可达时的备用流程：
 
 - Xray 安装
 - Xray 更新
