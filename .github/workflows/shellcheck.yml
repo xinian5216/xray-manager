@@ -72,9 +72,11 @@ jobs:
           curl -fL --retry 3 \
             -o /tmp/Xray-linux-64.zip \
             "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
-          unzip -q /tmp/Xray-linux-64.zip xray -d /tmp/xray-test
+          unzip -q /tmp/Xray-linux-64.zip xray geoip.dat geosite.dat -d /tmp/xray-test
           chmod +x /tmp/xray-test/xray
-          XRAY_TEST_BIN=/tmp/xray-test/xray bash tests/smoke-configs.sh
+          XRAY_TEST_BIN=/tmp/xray-test/xray \
+            XRAY_TEST_ASSET_DIR=/tmp/xray-test \
+            bash tests/smoke-configs.sh
 
   worker:
     name: Cloudflare Worker

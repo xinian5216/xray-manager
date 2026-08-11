@@ -10,6 +10,29 @@
 - `INSTALL_TOKEN` 只声明 Secret 名称，不提交 Secret 值；Worker 使用固定时间哈希比较并限制可读取的 R2 路径。
 - 新增 Workers 运行时测试、TypeScript 检查和 GitHub Actions Worker 校验任务。
 
+## v1.5.0 / Core v1.5.0 - 2026-08-11
+
+### Added
+- 新增出站管理中心：Freedom IPv4/IPv6/指定源地址、SOCKS5、HTTP、Shadowsocks、WireGuard/WARP 和自定义 Outbound JSON。
+- 新增路由与分流中心：常用服务、GeoSite、GeoIP、CIDR、入站 Tag、IPv4/IPv6、直连/拦截及最终默认出口。
+- 新增路由列表、规则删除、上下移动、Domain Strategy 和自定义 RuleObject。
+- 新增主菜单端口转发中心，可查看、添加和删除 TCP、UDP、TCP+UDP 转发，并选择公网/本机监听和目标出站。
+
+### Safety
+- 脚本创建的出站统一使用 `20_outbound_<tag>_tail.json`，避免 Xray 多文件合并把新出站变成默认出口。
+- 路由统一写入 `30_routing.json`；发现其他文件已有顶层 `routing` 时拒绝自动接管。
+- 出站删除前检查路由、链式代理和 `dialerProxy` 引用。
+- 通用配置写入在临时目录中测试完整配置，正式写入前备份，服务重启失败时恢复原文件。
+- 最终默认路由固定保留在规则末尾，新规则自动插入其前方。
+
+### Fixed
+- 端口转发默认不再隐藏在入站高级选项中，并修复 UDP/TCP+UDP 转发只放行 TCP UFW 端口的问题。
+- 删除端口转发时同步清理管理器创建的关联路由。
+
+### Tests and docs
+- 新增 Freedom、SOCKS5、WireGuard/WARP、路由顺序及指定出站端口转发配置测试。
+- README 和使用说明补充出站、路由与端口转发操作及限制。
+
 ## v1.4.3 / Core v1.4.3 - 2026-08-11
 
 ### Added
