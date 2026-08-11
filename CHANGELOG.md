@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- 将 Cloudflare 下载 Worker 的 TypeScript 源码、Wrangler 配置和依赖锁文件纳入仓库，可由现有 Worker 直接连接 GitHub 构建部署。
+- 明确 R2 发布工作流固定覆盖五个对象键，不按日期或版本累积对象。
+
+### Security and tests
+- `INSTALL_TOKEN` 只声明 Secret 名称，不提交 Secret 值；Worker 使用固定时间哈希比较并限制可读取的 R2 路径。
+- 新增 Workers 运行时测试、TypeScript 检查和 GitHub Actions Worker 校验任务。
+
 ## v1.4.3 / Core v1.4.3 - 2026-08-11
 
 ### Added

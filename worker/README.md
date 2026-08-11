@@ -1,0 +1,43 @@
+# Cloudflare download Worker
+
+该 Worker 为 Xray Manager 提供 IPv4 / IPv6 下载入口：
+
+- `/install.sh`：公开读取 R2 的 `public/install.sh`。
+- `/releases/latest-{amd64,arm64}.{tar.gz,sha256}`：验证 Bearer `INSTALL_TOKEN` 后读取 R2。
+- 只接受 `GET` 与 `HEAD`，其他路径和版本化文件名不会被代理。
+
+## 本地校验
+
+```bash
+npm ci
+npm run check
+```
+
+`npm run check` 会生成绑定类型、执行 TypeScript 检查和 Workers 运行时测试。如需额外验证部署包，可运行 `npm run deploy:dry-run`。
+
+## Cloudflare 配置
+
+连接现有 Worker，不要新建第二个：
+
+| 设置 | 值 |
+| --- | --- |
+| Worker 名称 | `xray-manager-download` |
+| Git 仓库 | `xinian5216/xray-manager` |
+| Production branch | `main` |
+| Root directory | `worker` |
+| Build command | `npm run check` |
+| Deploy command | `npm run deploy` |
+| Build include path | `worker/*` |
+
+运行时配置：
+
+- R2 绑定 `BUNDLES` → `xray-manager-private`，已在 `wrangler.jsonc` 声明。
+- `INSTALL_TOKEN` 必须继续作为 Worker Secret 保存，不能写入源码、`vars` 或 GitHub。
+
+如需首次手动写入或轮换 Secret：
+
+```bash
+npx wrangler secret put INSTALL_TOKEN
+```
+
+生产部署使用 `--keep-vars`，以保留控制台中已有的运行时变量；Wrangler Secret 仍由 Cloudflare 独立保存。
