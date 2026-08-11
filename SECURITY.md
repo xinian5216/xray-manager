@@ -40,6 +40,8 @@ backups/
 - R2 Access Key ID / Secret Access Key：只用于 GitHub Actions 写入指定 Bucket。
 - GitHub Fine-grained PAT：只用于直接读取 Private Repository。
 
+`worker/wrangler.jsonc` 只声明 `INSTALL_TOKEN` 这个 Secret 名称和 `BUNDLES` R2 绑定，不保存任何 Secret 值。连接 GitHub 自动构建时，继续复用 Cloudflare 控制台中现有的 `INSTALL_TOKEN`，不要把它添加为仓库变量、构建变量或普通 `vars`。
+
 R2 API Token 应限制为 `xray-manager-private` Bucket 的 Object Read & Write，不要授予无关账户权限。R2 密钥只能保存为 GitHub Actions Secrets；Cloudflare Account ID 可以保存为普通 Repository Variable。
 
 不要把任何密钥写入 README、工作流 YAML、命令行 URL、Issue 或 Actions 日志。发现泄露后应立即轮换对应密钥；只更换 Worker `INSTALL_TOKEN` 不会影响 R2 上传密钥，反之亦然。

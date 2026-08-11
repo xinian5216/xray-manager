@@ -16,6 +16,7 @@
 - UFW、BBR、日志、配置测试、备份恢复
 - IPv6-only、NAT64 / DNS64、IPv6 可达下载代理
 - Cloudflare Worker + 私有 R2 的 IPv4 / IPv6 一键安装与后续自更新
+- Worker 源码、Wrangler 配置与运行时测试由 GitHub 版本化维护
 - 完全离线导入 Xray ZIP、GeoIP 与 GeoSite
 - 已有 Xray 配置安全迁移、双重确认和迁移前完整备份
 - 主菜单直接更新 Xray Manager Launcher 与 Core
@@ -53,6 +54,10 @@ VPS 需要预先具备 `curl`、`tar`，以及 `unzip`、`bsdtar`、Python 3 中
 通过该入口安装后，主菜单中的 `1) 安装 / 修复 Xray`、`6) 更新 Xray-core` 和 `7) 更新 GeoData` 会自动从 Worker 后的私有 R2 获取离线包，不再探测或访问 GitHub/XTLS，也不需要 NAT64、WARP 或下载代理。每次下载会安全提示输入安装密钥，密钥不会持久保存。
 
 GitHub Actions 会在相关文件合并到 `main` 后，使用经过配置冒烟测试的固定 Xray 版本重新构建两个架构的包，并覆盖 R2 中的五个对象。R2 保持私有，只有 `public/install.sh` 通过 Worker 公开读取；安装包必须通过 Worker 密钥访问。
+
+发布工作流始终写入固定的五个对象键：`public/install.sh`、两个 `latest-*.tar.gz` 和对应的两个 `latest-*.sha256`。同名对象会原位覆盖，不会按日期或版本新增对象；本工作流管理的 R2 存储量不会随每日更新无限累积。
+
+Worker 源码位于 [`worker/`](worker/)，可将现有 `xray-manager-download` Worker 直接连接到本仓库构建部署，无需新建第二个 Worker。
 
 测试公开入口：
 
@@ -246,6 +251,21 @@ Worker 本身不保存或打包 Xray，它只负责鉴权并读取私有 R2。R2
 
 因此 Xray Core 和规则库都不会在发布当天盲目追新；Core 观察 14 天，GeoData 观察 7 天。观察期结束后，上游下载失败、哈希不一致或新 Core 与现有配置不兼容时，工作流仍会失败，R2 继续保留上一次已验证的包。仓库里的 `XRAY_VERSION` 作为 CI 基线和上游 API 不可用时的回退版本。
 
+### Worker 通过 GitHub 自动构建
+
+仓库中的 `worker/` 包含 Worker 源码、`wrangler.jsonc`、固定依赖锁文件和 Workers 运行时测试。连接 Cloudflare 时使用现有 Worker：
+
+| Cloudflare Builds 设置 | 值 |
+| --- | --- |
+| Worker | `xray-manager-download` |
+| Production branch | `main` |
+| Root directory | `worker` |
+| Build command | `npm run check` |
+| Deploy command | `npm run deploy` |
+| Include paths | `worker/*` |
+
+`BUNDLES` R2 绑定已在 Wrangler 配置中声明。现有 `INSTALL_TOKEN` 必须继续保存在 Cloudflare Worker Secret 中，不能写入仓库或普通 `vars`。详细步骤见 [worker/README.md](worker/README.md)。
+
 查看项目 / Core 版本：
 
 ```bash
@@ -302,6 +322,11 @@ Xray-core / UFW / BBR / 配置文件
 │   ├── smoke-configs.sh
 │   ├── offline-install.sh
 │   └── cloudflare-update.sh
+├── worker/
+│   ├── src/index.ts
+│   ├── test/index.spec.ts
+│   ├── wrangler.jsonc
+│   └── package.json
 ├── .github/workflows/shellcheck.yml
 ├── .github/workflows/publish-r2.yml
 ├── README.md
@@ -344,9 +369,13 @@ bash -n xray-manager.sh
 bash -n lib/xray-manager-core.sh
 bash -n install.sh
 sha256sum -c SHA256SUMS
+
+cd worker
+npm ci
+npm run check
 ```
 
-`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、离线导入和 `XRAY_VERSION` 基线版本的配置冒烟测试。`Publish offline bundles to R2` 每天选择发布已满 14 天的最新稳定版 Xray 和至少 7 天前的 GeoData 快照，再次运行配置与 GeoData 测试，成功后才构建并上传 AMD64 / ARM64 离线包。
+`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、离线导入、Worker 类型检查和 Workers 运行时测试。`Publish offline bundles to R2` 每天选择发布已满 14 天的最新稳定版 Xray 和至少 7 天前的 GeoData 快照，再次运行配置与 GeoData 测试，成功后才构建并上传 AMD64 / ARM64 离线包。
 
 ## License
 

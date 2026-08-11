@@ -75,3 +75,21 @@ jobs:
           unzip -q /tmp/Xray-linux-64.zip xray -d /tmp/xray-test
           chmod +x /tmp/xray-test/xray
           XRAY_TEST_BIN=/tmp/xray-test/xray bash tests/smoke-configs.sh
+
+  worker:
+    name: Cloudflare Worker
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Type-check and test Worker
+        run: npm run check
