@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.4.0** · Core：**v1.4.0**
+> 当前项目版本：**v1.4.1** · Core：**v1.4.1**
 
 ## 核心功能
 
@@ -46,7 +46,9 @@ VPS 需要预先具备 `curl`、`tar`，以及 `unzip`、`bsdtar`、Python 3 中
 3. 根据 CPU 架构下载完整离线包与 SHA256。
 4. 校验压缩包，解压仓库、Xray 和 GeoData。
 5. 调用 `offline-install.sh` 完成本地安装，安装阶段不再访问其他外网。
-6. 记录 Cloudflare 更新来源，以后 `xraym --self-update` 继续使用同一通道。
+6. 记录 Cloudflare 更新来源，以后管理器、Xray-core 和 GeoData 更新继续使用同一通道。
+
+通过该入口安装后，主菜单中的 `1) 安装 / 修复 Xray`、`6) 更新 Xray-core` 和 `7) 更新 GeoData` 会自动从 Worker 后的私有 R2 获取离线包，不再探测或访问 GitHub/XTLS，也不需要 NAT64、WARP 或下载代理。每次下载会安全提示输入安装密钥，密钥不会持久保存。
 
 GitHub Actions 会在相关文件合并到 `main` 后，使用经过配置冒烟测试的固定 Xray 版本重新构建两个架构的包，并覆盖 R2 中的五个对象。R2 保持私有，只有 `public/install.sh` 通过 Worker 公开读取；安装包必须通过 Worker 密钥访问。
 
@@ -208,7 +210,7 @@ sudo xraym --self-update-cloudflare
 sudo xraym --self-update-github
 ```
 
-Cloudflare 更新会再次提示输入安装密钥，密钥不会持久保存。它只更新 Xray Manager Launcher 与 Core；Xray-core 和 GeoData 仍通过菜单中的独立更新功能管理。
+Cloudflare 更新会再次提示输入安装密钥，密钥不会持久保存。`xraym --self-update` 更新 Launcher 与 Core；Xray-core 和 GeoData 仍通过菜单中的独立功能管理，但通过 Cloudflare 入口安装的机器会自动让这些功能复用同一个 Worker + R2 通道。
 
 查看项目 / Core 版本：
 
