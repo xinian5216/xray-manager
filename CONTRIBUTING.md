@@ -16,12 +16,15 @@
 
 ```bash
 bash -n xray-manager.sh
+bash -n install.sh
+bash -n offline-install.sh
+bash -n cloudflare-install.sh
 ```
 
 推荐同时运行：
 
 ```bash
-shellcheck xray-manager.sh
+shellcheck xray-manager.sh install.sh offline-install.sh cloudflare-install.sh
 ```
 
 ## 版本
@@ -29,6 +32,8 @@ shellcheck xray-manager.sh
 功能性变更请同步更新：
 
 - `SCRIPT_VERSION`
+- `PROJECT_VERSION` / `CORE_VERSION`
+- `VERSION`
 - `CHANGELOG.md`
 - `README.md`
 
@@ -48,3 +53,7 @@ shellcheck xray-manager.sh
 - `README.md`
 
 GitHub Actions 会检查版本一致性和 `SHA256SUMS`。
+
+涉及 R2 分发时，还应确认 `shellcheck.yml` 与 `publish-r2.yml` 使用相同的固定 Xray 版本，并确保发布工作流在上传前完成真实配置冒烟测试。
+
+更新随包分发的 Xray-core 时，只修改根目录 `XRAY_VERSION`，两个工作流都会读取该文件。
