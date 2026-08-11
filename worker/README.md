@@ -41,3 +41,5 @@ npx wrangler secret put INSTALL_TOKEN
 ```
 
 生产部署使用 `--keep-vars`，以保留控制台中已有的运行时变量；Wrangler Secret 仍由 Cloudflare 独立保存。
+
+首次连接 Git 构建时，Cloudflare 不会补跑连接前的历史提交；保存配置后需要向生产分支推送一次新提交来触发首次构建。
