@@ -343,6 +343,18 @@ REALITY 会把未通过认证的连接转发到 `target` 以维持正常 TLS 站
 
 公网监听时，如果 UFW 已启用，会按所选协议放行 TCP、UDP 或两者。端口转发本身不提供身份认证或加密，目标端看到的通常是 VPS/所选出站的源地址，不适合代替需要保留客户端源 IP 的 DNAT。
 
+## 维护与故障定位
+
+仓库提供面向维护者的可搜索导航。输入故障现象或功能关键词，会直接返回应检查的实现文件、回归测试、关联文档和候选 Bash 函数：
+
+```bash
+bash scripts/maintainer-map.sh "路由规则顺序"
+bash scripts/maintainer-map.sh "Worker 401"
+bash scripts/maintainer-map.sh "IPv6 下载"
+```
+
+路径或职责调整后执行 `bash scripts/maintainer-map.sh --check`，Validate 工作流也会自动阻止失效映射合并。维护前请先看 [维护与故障定位指南](docs/MAINTAINER_GUIDE.md)；仓库级自动化维护规则见 [AGENTS.md](AGENTS.md)。
+
 ## 架构
 
 ```text
@@ -370,9 +382,11 @@ Xray-core / UFW / BBR / 配置文件
 │   └── xray-manager-core.sh
 ├── docs/
 │   ├── USAGE.md
+│   ├── MAINTAINER_GUIDE.md
 │   ├── IPV6_ONLY.md
 │   └── PRIVATE_INSTALL.md
 ├── scripts/
+│   ├── maintainer-map.sh
 │   └── refresh-checksums.sh
 ├── tests/
 │   ├── smoke-configs.sh
@@ -386,6 +400,7 @@ Xray-core / UFW / BBR / 配置文件
 ├── .github/workflows/shellcheck.yml
 ├── .github/workflows/publish-r2.yml
 ├── README.md
+├── AGENTS.md
 ├── CHANGELOG.md
 ├── SECURITY.md
 ├── CONTRIBUTING.md
