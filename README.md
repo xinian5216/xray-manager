@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.4.1** · Core：**v1.4.1**
+> 当前项目版本：**v1.4.2** · Core：**v1.4.2**
 
 ## 核心功能
 
@@ -17,6 +17,7 @@
 - IPv6-only、NAT64 / DNS64、IPv6 可达下载代理
 - Cloudflare Worker + 私有 R2 的 IPv4 / IPv6 一键安装与后续自更新
 - 完全离线导入 Xray ZIP、GeoIP 与 GeoSite
+- 已有 Xray 配置安全迁移、双重确认和迁移前完整备份
 
 ## 快速安装
 
@@ -185,6 +186,17 @@ sudo xraym
 
 首次进入菜单后选择 **1) 一键安装 / 修复 Xray**。这里的“一键”只负责安装官方 Xray-core 和系统服务，不会重新下载 Xray Manager 项目。
 
+### 已安装 Xray 时的安全迁移
+
+如果 VPS 已经安装过 Xray，菜单 `1) 一键安装 / 修复 Xray` 会先读取 systemd / OpenRC 的启动参数，并兼容识别常见的 `/usr/local/etc/xray/config.json` 和 `/etc/xray/config.json`。旧 Xray 即使安装在 `/usr/bin/xray` 等非 Manager 路径，也会使用服务当前实际调用的二进制完成迁移校验。发现脚本接管前的单文件配置或配置目录时：
+
+1. 连续要求两次确认；任意一次拒绝都会中止安装/修复，不修改配置、服务或 Xray 文件。
+2. 将旧配置、当前 Manager 配置目录、Xray 可执行文件和服务定义/状态备份到 `/etc/xray-manager/backups/pre-migration-时间/`。
+3. 把旧配置复制到暂存目录，保持原文件不删除，并用当前 Xray 执行 `run -confdir ... -test`。
+4. 只有测试通过后才将暂存目录切换为 `/usr/local/etc/xray/conf.d`；原 Manager 目录仍保留为 `/usr/local/etc/xray/conf.d.before-migration-时间`。
+
+迁移结果记录在 `/etc/xray-manager/config_migration.state`，以后再次选择菜单 1 不会重复迁移。v1.4.0 / v1.4.1 已生成 `20-xray-manager-offline.conf`、从而暂时隐藏旧 `config.json` 的机器，也会优先找回并迁移旧配置。
+
 ### 4. 只临时运行 Core
 
 不安装 Launcher 也可以直接运行：
@@ -312,7 +324,7 @@ bash -n install.sh
 sha256sum -c SHA256SUMS
 ```
 
-`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、离线导入和 `XRAY_VERSION` 指定版本的配置冒烟测试。`Publish offline bundles to R2` 使用同一个版本再次运行冒烟测试，成功后才构建并上传 AMD64 / ARM64 离线包。
+`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、已有配置迁移、离线导入和 `XRAY_VERSION` 指定版本的配置冒烟测试。`Publish offline bundles to R2` 使用同一个版本再次运行冒烟测试，成功后才构建并上传 AMD64 / ARM64 离线包。
 
 ## License
 
