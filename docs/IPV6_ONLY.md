@@ -89,6 +89,18 @@ http://user:password@[2001:db8::10]:8080
 - GeoData 更新
 - GitHub / XTLS 下载
 
+## 完全离线安装
+
+没有 NAT64、代理或 WARP 时，可以上传仓库 ZIP、官方 Xray ZIP、`geoip.dat` 和 `geosite.dat`，解压仓库后运行：
+
+```bash
+sudo bash offline-install.sh --bundle-dir /path/to/offline-bundle --run
+```
+
+离线安装器不会调用网络下载或包管理器。它会校验仓库脚本、验证 Xray 架构和当前配置、安装 GeoData、配置 systemd / OpenRC 服务并安装 `xraym`。
+
+本机必须预先具备 `unzip`、`bsdtar` 或 Python 3 中的至少一种，否则无法读取 Xray ZIP。
+
 ## IPv6-only 入站监听
 
 普通 VPS 默认公网监听：
