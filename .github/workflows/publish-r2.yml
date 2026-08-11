@@ -10,8 +10,10 @@ on:
       - "offline-install.sh"
       - "cloudflare-install.sh"
       - "VERSION"
+      - "XRAY_VERSION"
       - "SHA256SUMS"
       - "lib/**"
+      - "tests/smoke-configs.sh"
       - ".github/workflows/publish-r2.yml"
 
   workflow_dispatch:
@@ -71,29 +73,40 @@ jobs:
 
           sha256sum -c SHA256SUMS
 
-      - name: Download latest official Xray packages
+      - name: Download pinned official Xray packages
         shell: bash
         run: |
           set -Eeuo pipefail
 
           mkdir -p downloads
+          XRAY_VERSION="$(tr -d '[:space:]' < XRAY_VERSION)"
+          [[ "$XRAY_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
 
           curl -fL \
             --retry 5 \
             --retry-all-errors \
             --connect-timeout 20 \
-            "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip" \
+            "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip" \
             -o downloads/Xray-linux-64.zip
 
           curl -fL \
             --retry 5 \
             --retry-all-errors \
             --connect-timeout 20 \
-            "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-arm64-v8a.zip" \
+            "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-arm64-v8a.zip" \
             -o downloads/Xray-linux-arm64-v8a.zip
 
           unzip -t downloads/Xray-linux-64.zip
           unzip -t downloads/Xray-linux-arm64-v8a.zip
+
+      - name: Test packaged Xray version
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p /tmp/xray-r2-test
+          unzip -q downloads/Xray-linux-64.zip xray -d /tmp/xray-r2-test
+          chmod +x /tmp/xray-r2-test/xray
+          XRAY_TEST_BIN=/tmp/xray-r2-test/xray bash tests/smoke-configs.sh
 
       - name: Build offline bundles
         shell: bash
@@ -125,6 +138,9 @@ jobs:
 
             install -m 644 VERSION \
               "$manager/VERSION"
+
+            install -m 644 XRAY_VERSION \
+              "$manager/XRAY_VERSION"
 
             install -m 644 SHA256SUMS \
               "$manager/SHA256SUMS"
