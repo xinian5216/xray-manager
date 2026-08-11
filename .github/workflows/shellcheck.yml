@@ -26,6 +26,7 @@ jobs:
           bash -n tests/smoke-configs.sh
           bash -n tests/offline-install.sh
           bash -n tests/cloudflare-update.sh
+          bash -n tests/cloudflare-core-download.sh
       - name: Verify project version
         run: |
           test "$(tr -d '[:space:]' < VERSION)" = "$(sed -n 's/^PROJECT_VERSION="\(.*\)"/\1/p' xray-manager.sh | head -n1)"
@@ -45,10 +46,13 @@ jobs:
           shellcheck -e SC2034 -S warning tests/smoke-configs.sh
           shellcheck -e SC2034 -S warning tests/offline-install.sh
           shellcheck -S warning tests/cloudflare-update.sh
+          shellcheck -e SC2034 -S warning tests/cloudflare-core-download.sh
       - name: Offline import test
         run: bash tests/offline-install.sh
       - name: Cloudflare manager update test
         run: bash tests/cloudflare-update.sh
+      - name: Cloudflare Core download test
+        run: bash tests/cloudflare-core-download.sh
       - name: Xray configuration smoke tests
         run: |
           XRAY_VERSION="$(tr -d '[:space:]' < XRAY_VERSION)"
