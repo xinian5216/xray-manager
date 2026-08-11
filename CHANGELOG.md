@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.4.2 / Core v1.4.2 - 2026-08-11
+
+### Fixed
+- 菜单 1 与离线安装在覆盖服务启动参数前，自动识别并迁移已有 Xray 单文件配置或配置目录。
+- 兼容恢复被 v1.4.0 / v1.4.1 systemd drop-in 暂时隐藏的旧 `config.json`。
+
+### Safety and tests
+- 迁移覆盖前必须连续确认两次；任意一次取消都会中止安装/修复且不修改配置和服务。
+- 迁移前备份旧配置、当前 Manager 配置、Xray 可执行文件以及 systemd / OpenRC 服务状态；原始配置不删除。
+- 暂存配置必须先通过当前 Xray 的 `-test`，成功后才切换到 Manager `conf.d`，并新增单文件、配置目录、取消迁移和旧 drop-in 恢复测试。
+
 ## v1.4.1 / Core v1.4.1 - 2026-08-11
 
 ### Fixed

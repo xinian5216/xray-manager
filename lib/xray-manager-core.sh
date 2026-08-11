@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.4.1"
+SCRIPT_VERSION="1.4.2"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -32,6 +32,8 @@ CLOUDFLARE_URL_FILE="${XRAY_MANAGER_CLOUDFLARE_URL_FILE:-${STATE_DIR}/cloudflare
 CLOUDFLARE_BASE_DEFAULT="https://xray-manager-download.xinian5216.workers.dev"
 CLOUDFLARE_BASE="${XRAY_MANAGER_CLOUDFLARE_URL:-}"
 UPDATE_SOURCE="${XRAY_MANAGER_UPDATE_SOURCE:-}"
+CONFIG_MIGRATION_STATE_FILE="${XRAY_MANAGER_CONFIG_MIGRATION_STATE_FILE:-${STATE_DIR}/config_migration.state}"
+SYSTEMD_MANAGER_DROPIN="${XRAY_MANAGER_SYSTEMD_DROPIN:-/etc/systemd/system/xray.service.d/20-xray-manager-offline.conf}"
 
 OFFICIAL_INSTALLER="https://github.com/XTLS/Xray-install/raw/main/install-release.sh"
 OFFICIAL_ALPINE_INSTALLER="https://github.com/XTLS/Xray-install/raw/main/alpinelinux/install-release.sh"
@@ -850,6 +852,248 @@ offline_validate_file() {
   }
 }
 
+extract_xray_config_source() {
+  local command_line="$1" token expect=""
+  local -a tokens=()
+  local IFS=' '
+
+  command_line="${command_line//;/ }"
+  command_line="${command_line//\{/ }"
+  command_line="${command_line//\}/ }"
+  read -r -a tokens <<<"$command_line"
+
+  for token in "${tokens[@]}"; do
+    token="${token//\"/}"
+    token="${token//\'/}"
+    if [[ -n "$expect" ]]; then
+      printf '%s\t%s' "$expect" "$token"
+      return 0
+    fi
+    case "$token" in
+      -config|-c) expect="file" ;;
+      -confdir) expect="dir" ;;
+      -config=*|-c=*) printf 'file\t%s' "${token#*=}"; return 0 ;;
+      -confdir=*) printf 'dir\t%s' "${token#*=}"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
+discover_existing_xray_config() {
+  local discovered="" kind="" path="" command_line=""
+
+  if [[ -n "${XRAY_MANAGER_LEGACY_CONFIG:-}" ]]; then
+    path="${XRAY_MANAGER_LEGACY_CONFIG%/}"
+    if [[ -f "$path" &&
+          "$path" != "${CONF_DIR%/}/"* ]]; then
+      printf 'file\t%s' "$path"
+      return 0
+    elif [[ -d "$path" &&
+            "$path" != "${CONF_DIR%/}" &&
+            "$path" != "${CONF_DIR%/}/"* ]]; then
+      printf 'dir\t%s' "$path"
+      return 0
+    fi
+    err "指定的旧配置不存在：$path"
+    return 1
+  fi
+
+  if [[ "$INIT_SYS" == "systemd" ]] && command -v systemctl >/dev/null 2>&1; then
+    command_line="$(systemctl show xray -p ExecStart --value 2>/dev/null || true)"
+    discovered="$(extract_xray_config_source "$command_line" 2>/dev/null || true)"
+    if [[ -n "$discovered" ]]; then
+      IFS=$'\t' read -r kind path <<<"$discovered"
+      path="${path%/}"
+      if [[ "$path" != "${CONF_DIR%/}" &&
+            "$path" != "${CONF_DIR%/}/"* ]]; then
+        if [[ "$kind" == "file" && -f "$path" ]] ||
+           [[ "$kind" == "dir" && -d "$path" ]]; then
+          printf '%s\t%s' "$kind" "$path"
+          return 0
+        fi
+      fi
+    fi
+  elif [[ "$INIT_SYS" == "openrc" ]]; then
+    for path in /etc/conf.d/xray /etc/init.d/xray; do
+      [[ -r "$path" ]] || continue
+      command_line="$(tr '\n' ' ' <"$path")"
+      discovered="$(extract_xray_config_source "$command_line" 2>/dev/null || true)"
+      [[ -n "$discovered" ]] || continue
+      IFS=$'\t' read -r kind path <<<"$discovered"
+      path="${path%/}"
+      if [[ "$path" != "${CONF_DIR%/}" &&
+            "$path" != "${CONF_DIR%/}/"* ]] &&
+         { [[ "$kind" == "file" && -f "$path" ]] ||
+           [[ "$kind" == "dir" && -d "$path" ]]; }; then
+        printf '%s\t%s' "$kind" "$path"
+        return 0
+      fi
+    done
+  fi
+
+  # v1.4.0 may already have installed this drop-in and hidden the old
+  # config.json. Recover that legacy config instead of treating conf.d as the
+  # original source.
+  if [[ -f "$SYSTEMD_MANAGER_DROPIN" && ! -s "$CONFIG_MIGRATION_STATE_FILE" ]]; then
+    for path in "$XRAY_ROOT/config.json" /etc/xray/config.json; do
+      if [[ -f "$path" ]]; then
+        printf 'file\t%s' "$path"
+        return 0
+      fi
+    done
+  fi
+
+  # Fallback for standard XTLS installations when service metadata is absent.
+  for path in "$XRAY_ROOT/config.json" /etc/xray/config.json; do
+    if [[ -f "$path" && "$path" != "$BASE_FILE" ]]; then
+      printf 'file\t%s' "$path"
+      return 0
+    fi
+  done
+  return 1
+}
+
+backup_xray_service_state() {
+  local backup="$1"
+  if [[ "$INIT_SYS" == "systemd" ]] && command -v systemctl >/dev/null 2>&1; then
+    systemctl cat xray >"$backup/xray.service.txt" 2>/dev/null || true
+    systemctl show xray -p ExecStart -p FragmentPath -p DropInPaths \
+      >"$backup/xray.service-state.txt" 2>/dev/null || true
+    systemctl is-enabled xray >"$backup/xray.service-enabled.txt" 2>/dev/null || true
+    systemctl is-active xray >"$backup/xray.service-active.txt" 2>/dev/null || true
+
+    if [[ -f /etc/systemd/system/xray.service ]]; then
+      cp -a /etc/systemd/system/xray.service "$backup/xray.service" || true
+    fi
+    if [[ -d /etc/systemd/system/xray.service.d ]]; then
+      cp -a /etc/systemd/system/xray.service.d "$backup/xray.service.d" || true
+    fi
+    if [[ -f /usr/lib/systemd/system/xray.service ]]; then
+      cp -a /usr/lib/systemd/system/xray.service "$backup/xray.service.usr-lib" || true
+    fi
+    if [[ -f /lib/systemd/system/xray.service ]]; then
+      cp -a /lib/systemd/system/xray.service "$backup/xray.service.lib" || true
+    fi
+  elif [[ "$INIT_SYS" == "openrc" ]]; then
+    [[ -f /etc/init.d/xray ]] && cp -a /etc/init.d/xray "$backup/xray.init" || true
+    [[ -f /etc/conf.d/xray ]] && cp -a /etc/conf.d/xray "$backup/xray.conf" || true
+  fi
+}
+
+migrate_existing_xray_config() {
+  local kind="$1" source="$2"
+  local stamp backup stage previous first_json
+
+  source="${source%/}"
+  echo
+  warn "检测到脚本接管前的 Xray 配置：$source"
+  echo "迁移目标：$CONF_DIR"
+  echo "原配置只会复制，不会删除；当前目标目录和服务状态会先完整备份。"
+  echo
+  confirm "第一次确认：将现有 Xray 配置迁移给 Xray Manager 管理？" || {
+    warn "已取消安装/修复，未修改配置和服务。"
+    return 1
+  }
+  confirm "第二次确认：允许备份后替换 $CONF_DIR 的现有内容？" || {
+    warn "已取消安装/修复，未修改配置和服务。"
+    return 1
+  }
+
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  backup="$BACKUP_DIR/pre-migration-$stamp"
+  stage="$XRAY_ROOT/.conf.d.migration-$stamp"
+  previous="$XRAY_ROOT/conf.d.before-migration-$stamp"
+  mkdir -p "$BACKUP_DIR" "$XRAY_ROOT" "$backup" "$stage"
+  chmod 700 "$BACKUP_DIR" "$backup"
+
+  if [[ -d "$CONF_DIR" ]]; then
+    cp -a "$CONF_DIR" "$backup/manager-conf-before" || {
+      err "无法备份当前 Manager 配置，已中止。"
+      rm -rf "$stage"
+      return 1
+    }
+  fi
+  backup_xray_service_state "$backup"
+  [[ -f "$XRAY_BIN" ]] && cp -a "$XRAY_BIN" "$backup/xray" || true
+
+  if [[ "$kind" == "file" ]]; then
+    cp -a "$source" "$backup/legacy-config.json" &&
+      install -m 640 "$source" "$stage/00_base.json" || {
+        err "复制旧配置失败，已中止。"
+        rm -rf "$stage"
+        return 1
+      }
+  else
+    cp -a "$source" "$backup/legacy-confdir" &&
+      cp -a "$source"/. "$stage"/ || {
+        err "复制旧配置目录失败，已中止。"
+        rm -rf "$stage"
+        return 1
+      }
+    if [[ ! -f "$stage/00_base.json" ]]; then
+      first_json="$(find "$stage" -maxdepth 1 \( -type f -o -type l \) -name '*.json' -print |
+        LC_ALL=C sort | head -n 1)"
+      [[ -n "$first_json" ]] || {
+        err "旧配置目录中没有 JSON 文件，已中止。"
+        rm -rf "$stage"
+        return 1
+      }
+      # Keep every legacy filename and its merge order intact.  This empty
+      # base prevents ensure_layout from injecting a second default outbound.
+      printf '{}\n' >"$stage/00_base.json"
+    fi
+  fi
+
+  if ! XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" \
+       run -confdir "$stage" -test >/dev/null 2>&1; then
+    err "迁移后的配置测试失败，未覆盖 Manager 配置。"
+    warn "原配置仍在：$source"
+    warn "诊断备份位于：$backup"
+    rm -rf "$stage"
+    return 1
+  fi
+
+  if [[ -e "$CONF_DIR" ]]; then
+    mv "$CONF_DIR" "$previous" || {
+      err "无法暂存当前 Manager 配置，已中止。"
+      rm -rf "$stage"
+      return 1
+    }
+  fi
+  if ! mv "$stage" "$CONF_DIR"; then
+    err "写入迁移配置失败，正在恢复。"
+    [[ -e "$previous" ]] && mv "$previous" "$CONF_DIR" || true
+    return 1
+  fi
+
+  mkdir -p "$STATE_DIR"
+  {
+    printf 'source=%s\n' "$source"
+    printf 'backup=%s\n' "$backup"
+    printf 'previous_manager_conf=%s\n' "$previous"
+    printf 'migrated_at=%s\n' "$stamp"
+  } >"$CONFIG_MIGRATION_STATE_FILE"
+  chmod 600 "$CONFIG_MIGRATION_STATE_FILE"
+
+  ensure_layout
+  ok "已有 Xray 配置已迁移并通过测试。"
+  echo "配置来源：$source"
+  echo "完整备份：$backup"
+  [[ -e "$previous" ]] && echo "原 Manager 目录：$previous"
+}
+
+prepare_existing_xray_config() {
+  local discovered kind source
+  xray_exists || return 0
+  [[ -s "$CONFIG_MIGRATION_STATE_FILE" ]] && return 0
+
+  discovered="$(discover_existing_xray_config || true)"
+  [[ -n "$discovered" ]] || return 0
+  IFS=$'\t' read -r kind source <<<"$discovered"
+  [[ -n "$kind" && -n "$source" ]] || return 0
+  migrate_existing_xray_config "$kind" "$source"
+}
+
 configure_systemd_offline_service() {
   local unit="/etc/systemd/system/xray.service"
   local dropin="/etc/systemd/system/xray.service.d/20-xray-manager-offline.conf"
@@ -942,6 +1186,7 @@ offline_import_xray() {
   offline_validate_file "$geosite" "GeoSite" 1024 || return 1
 
   detect_platform
+  prepare_existing_xray_config || return 1
   ensure_layout
   tmp="$(mktemp -d)"
   mkdir -p "$tmp/assets"
@@ -1086,6 +1331,8 @@ offline_import_menu() {
 }
 
 install_or_repair_xray() {
+  detect_platform
+  prepare_existing_xray_config || return 1
   ensure_layout
   load_network_state
   if uses_cloudflare_distribution; then
