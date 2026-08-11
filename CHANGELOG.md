@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.4.1 / Core v1.4.1 - 2026-08-11
+
+### Fixed
+- 修复通过 Cloudflare 安装后，主菜单安装/修复 Xray、更新 Xray-core 与更新 GeoData 仍强制访问 GitHub/XTLS 的问题。
+- Core 现在读取已保存的 Cloudflare 更新来源，自动下载对应架构的 R2 离线包并校验 SHA256。
+- GeoData 更新只替换 GeoIP / GeoSite，不会把用户自行安装的较新 Xray 降级到 R2 固定版本。
+
+### Security and tests
+- 安装密钥仍只存在于当次进程与权限为 600 的临时 curl 配置，操作完成后立即删除。
+- 解压前拒绝绝对路径和 `..` 路径，并新增测试保证 Cloudflare 通道不会访问 GitHub/XTLS。
+
 ## v1.4.0 / Core v1.4.0 - 2026-08-11
 
 ### Added
