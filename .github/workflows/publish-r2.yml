@@ -1,0 +1,242 @@
+name: Publish offline bundles to R2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "xray-manager.sh"
+      - "install.sh"
+      - "offline-install.sh"
+      - "cloudflare-install.sh"
+      - "VERSION"
+      - "SHA256SUMS"
+      - "lib/**"
+      - ".github/workflows/publish-r2.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-xray-manager-r2
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      R2_BUCKET: xray-manager-private
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+
+    steps:
+      - name: Checkout private repository
+        uses: actions/checkout@v6
+
+      - name: Validate configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          for name in \
+            CLOUDFLARE_ACCOUNT_ID \
+            AWS_ACCESS_KEY_ID \
+            AWS_SECRET_ACCESS_KEY
+          do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing GitHub secret or variable: $name"
+              exit 1
+            fi
+          done
+
+          test -s cloudflare-install.sh
+
+      - name: Validate repository files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          bash -n xray-manager.sh
+          bash -n install.sh
+          bash -n offline-install.sh
+          bash -n cloudflare-install.sh
+          bash -n lib/xray-manager-core.sh
+
+          sha256sum -c SHA256SUMS
+
+      - name: Download latest official Xray packages
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p downloads
+
+          curl -fL \
+            --retry 5 \
+            --retry-all-errors \
+            --connect-timeout 20 \
+            "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip" \
+            -o downloads/Xray-linux-64.zip
+
+          curl -fL \
+            --retry 5 \
+            --retry-all-errors \
+            --connect-timeout 20 \
+            "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-arm64-v8a.zip" \
+            -o downloads/Xray-linux-arm64-v8a.zip
+
+          unzip -t downloads/Xray-linux-64.zip
+          unzip -t downloads/Xray-linux-arm64-v8a.zip
+
+      - name: Build offline bundles
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p output
+
+          build_bundle() {
+            local arch="$1"
+            local xray_zip="$2"
+            local root="build/$arch"
+            local manager="$root/xray-manager"
+            local payload="$root/payload"
+
+            mkdir -p "$manager/lib" "$payload"
+
+            install -m 755 xray-manager.sh \
+              "$manager/xray-manager.sh"
+
+            install -m 755 install.sh \
+              "$manager/install.sh"
+
+            install -m 755 offline-install.sh \
+              "$manager/offline-install.sh"
+
+            install -m 755 lib/xray-manager-core.sh \
+              "$manager/lib/xray-manager-core.sh"
+
+            install -m 644 VERSION \
+              "$manager/VERSION"
+
+            install -m 644 SHA256SUMS \
+              "$manager/SHA256SUMS"
+
+            install -m 644 "$xray_zip" \
+              "$payload/$(basename "$xray_zip")"
+
+            unzip -p "$xray_zip" geoip.dat \
+              > "$payload/geoip.dat"
+
+            unzip -p "$xray_zip" geosite.dat \
+              > "$payload/geosite.dat"
+
+            test -s "$payload/geoip.dat"
+            test -s "$payload/geosite.dat"
+
+            tar -C "$root" \
+              -czf "output/latest-${arch}.tar.gz" \
+              xray-manager payload
+
+            sha256sum "output/latest-${arch}.tar.gz" |
+              awk '{print $1}' \
+              > "output/latest-${arch}.sha256"
+          }
+
+          build_bundle \
+            amd64 \
+            downloads/Xray-linux-64.zip
+
+          build_bundle \
+            arm64 \
+            downloads/Xray-linux-arm64-v8a.zip
+
+          install -m 755 \
+            cloudflare-install.sh \
+            output/install.sh
+
+          ls -lh output
+
+      - name: Upload packages to private R2
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          endpoint="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+          upload() {
+            local source="$1"
+            local key="$2"
+            local content_type="$3"
+            local cache_control="$4"
+
+            aws s3 cp \
+              "$source" \
+              "s3://${R2_BUCKET}/${key}" \
+              --endpoint-url "$endpoint" \
+              --content-type "$content_type" \
+              --cache-control "$cache_control" \
+              --only-show-errors
+          }
+
+          # 先上传较大的包，再上传校验文件
+          upload \
+            output/latest-amd64.tar.gz \
+            releases/latest-amd64.tar.gz \
+            application/gzip \
+            no-store
+
+          upload \
+            output/latest-arm64.tar.gz \
+            releases/latest-arm64.tar.gz \
+            application/gzip \
+            no-store
+
+          upload \
+            output/latest-amd64.sha256 \
+            releases/latest-amd64.sha256 \
+            "text/plain; charset=utf-8" \
+            no-store
+
+          upload \
+            output/latest-arm64.sha256 \
+            releases/latest-arm64.sha256 \
+            "text/plain; charset=utf-8" \
+            no-store
+
+          # 最后更新一键入口
+          upload \
+            output/install.sh \
+            public/install.sh \
+            "text/x-shellscript; charset=utf-8" \
+            "public, max-age=300"
+
+      - name: Verify R2 objects
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          endpoint="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+          for key in \
+            public/install.sh \
+            releases/latest-amd64.tar.gz \
+            releases/latest-amd64.sha256 \
+            releases/latest-arm64.tar.gz \
+            releases/latest-arm64.sha256
+          do
+            aws s3api head-object \
+              --bucket "$R2_BUCKET" \
+              --key "$key" \
+              --endpoint-url "$endpoint" \
+              >/dev/null
+
+            echo "Verified: $key"
+          done
