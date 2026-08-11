@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.4.3** · Core：**v1.4.3**
+> 当前项目版本：**v1.5.0** · Core：**v1.5.0**
 
 ## 核心功能
 
@@ -10,6 +10,10 @@
 - GeoIP / GeoSite 更新
 - VLESS、VMess、Trojan、Shadowsocks、Hysteria2
 - SOCKS5、HTTP Proxy、WireGuard Inbound、Tunnel、TUN
+- Freedom IPv4/IPv6、SOCKS5、HTTP、Shadowsocks、WireGuard/WARP 出站管理
+- GeoSite、GeoIP、CIDR、入站、IPv4/IPv6 与常用服务路由分流
+- 路由规则查看、删除、优先级调整、默认出口与自定义 RuleObject
+- TCP、UDP、TCP+UDP 端口转发，可选择公网/本机监听及指定出站
 - RAW、XHTTP、gRPC、WebSocket、HTTPUpgrade、mKCP
 - REALITY / TLS / 自定义 SNI 与 target
 - REALITY 共享 CDN target 风险检测、随机化回落限速
@@ -120,7 +124,7 @@ sudo bash offline-install.sh \
 该流程不会调用网络下载或包管理器。已经安装 `xraym` 时，也可在主菜单选择：
 
 ```text
-15) 完全离线安装 / 导入 Xray + GeoData
+14) 完全离线安装 / 导入 Xray + GeoData
 ```
 
 ### 临时 SSH SOCKS5
@@ -286,6 +290,58 @@ REALITY 会把未通过认证的连接转发到 `target` 以维持正常 TLS 站
 检测属于启发式判断，不能保证识别所有套了 CDN 的自定义域名。最稳妥的方案仍是自己的域名配合本机 Web 服务，或者同 ASN、非共享 CDN、资源体积较小的普通目标站。如果采用“偷自己”，应让本机 Web 服务监听另一个端口（例如 `127.0.0.1:8443`）并提供自有域名证书；不要让 target 再指回 Xray 正在监听的同一个公网端口，否则会形成回环。
 
 回落限速按单连接生效，攻击者可以通过并发连接部分绕过；限速行为本身也可能形成额外特征。因此它是止损措施，不能替代安全的 target 选择。即使 target 被判定为高风险，用户仍可在阅读警告并再次确认后关闭限速，最终选择权由用户保留。
+
+## 出站与路由管理
+
+主菜单提供：
+
+```text
+3) 出站管理
+4) 路由与分流
+```
+
+常用出站向导包括：
+
+- Freedom 自动、强制 IPv4、强制 IPv6 及指定源 IP/CIDR
+- SOCKS5（适合连接本机 WARP 代理）
+- HTTP Proxy（仅 TCP）
+- WireGuard / WARP（默认使用 userspace TUN，避免容器权限和路由表冲突）
+- Shadowsocks
+- 自定义单个 `OutboundObject` JSON
+
+脚本创建的出站使用 `20_outbound_<tag>_tail.json`。文件名必须保留 `tail`，否则 Xray 多文件合并可能把新出站插入最前并意外改变默认出口。
+
+路由统一保存在 `30_routing.json`，支持：
+
+- Google、Telegram、OpenAI、Netflix、YouTube 常用服务预设
+- 域名、`geosite:`、IP、CIDR、`geoip:` 分流
+- 指定入站、全部 IPv4、全部 IPv6 分流
+- 中国大陆域名/IP 直连、广告和 BitTorrent 拦截
+- 最终默认出口
+- 查看、删除、上下移动规则
+- 自定义单个 `RuleObject` JSON
+
+规则按显示顺序从上到下匹配，命中第一条后停止；最终默认规则始终保持在最后。每次写入都会先在临时目录测试完整配置，再备份、写入和重启，失败时自动回滚。
+
+如果迁移进来的其他 JSON 已经包含顶层 `routing`，管理器会拒绝自动接管并显示冲突文件，避免把已有复杂规则静默覆盖。
+
+## 端口转发
+
+主菜单选择：
+
+```text
+5) 端口转发
+```
+
+可配置：
+
+- 公网 IPv4、公网 IPv6、仅本机或自定义监听地址
+- TCP、UDP、TCP+UDP
+- 监听端口、目标域名/IP、目标端口
+- `direct` 或任意已配置出站
+- 查看和删除现有转发
+
+公网监听时，如果 UFW 已启用，会按所选协议放行 TCP、UDP 或两者。端口转发本身不提供身份认证或加密，目标端看到的通常是 VPS/所选出站的源地址，不适合代替需要保留客户端源 IP 的 DNAT。
 
 ## 架构
 

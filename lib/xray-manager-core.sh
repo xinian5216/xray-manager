@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.4.3"
+SCRIPT_VERSION="1.5.0"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -24,6 +24,7 @@ LOG_DIR="/var/log/xray"
 STATE_DIR="/etc/xray-manager"
 BACKUP_DIR="${STATE_DIR}/backups"
 BASE_FILE="${CONF_DIR}/00_base.json"
+ROUTING_FILE="${CONF_DIR}/30_routing.json"
 DOWNLOAD_PROXY_FILE="${STATE_DIR}/download_proxy"
 DNS64_STATE_FILE="${STATE_DIR}/dns64.state"
 DOWNLOAD_PROXY="${XRAY_DOWNLOAD_PROXY:-}"
@@ -99,17 +100,26 @@ sanitize_tag() {
   printf '%s' "$t"
 }
 
-ask_tag() {
-  local default="$1" t
+tag_exists() {
+  local tag="$1"
+  grep -Rqs --include='*.json' "\"tag\"[[:space:]]*:[[:space:]]*\"$tag\"" "$CONF_DIR" 2>/dev/null
+}
+
+ask_named_tag() {
+  local kind="$1" default="$2" t
   while true; do
-    t="$(ask_default "入站名称/Tag" "$default")"
+    t="$(ask_default "${kind}名称/Tag" "$default")"
     t="$(sanitize_tag "$t")"
-    if ! grep -Rqs --include='*.json' "\"tag\"[[:space:]]*:[[:space:]]*\"$t\"" "$CONF_DIR" 2>/dev/null; then
+    if ! tag_exists "$t"; then
       printf '%s' "$t"
       return 0
     fi
     warn "Tag '$t' 已存在，请换一个。"
   done
+}
+
+ask_tag() {
+  ask_named_tag "入站" "$1"
 }
 
 require_root() {
@@ -1551,9 +1561,16 @@ backup_now() {
   printf '%s' "$file"
 }
 
-safe_write_inbound() {
-  local tag="$1" json="$2" filename tmp backup
-  filename="10_inbound_$(sanitize_tag "$tag").json"
+safe_write_config_file() {
+  local filename="$1" json="$2" success_message="$3"
+  local tmp backup previous had_previous=0
+
+  [[ "$filename" == "$(basename "$filename")" && "$filename" == *.json ]] || {
+    err "拒绝写入不安全的配置文件名：$filename"
+    return 1
+  }
+
+  ensure_layout
 
   jq -e . >/dev/null <<<"$json" || {
     err "生成的 JSON 无效。"
@@ -1572,6 +1589,11 @@ safe_write_inbound() {
   fi
 
   backup="$(backup_now)"
+  previous="$(mktemp)"
+  if [[ -f "$CONF_DIR/$filename" ]]; then
+    cp -a "$CONF_DIR/$filename" "$previous"
+    had_previous=1
+  fi
   cp "$tmp/$filename" "$CONF_DIR/$filename"
   rm -rf "$tmp"
 
@@ -1579,15 +1601,53 @@ safe_write_inbound() {
   chmod 640 "$CONF_DIR/$filename" 2>/dev/null || true
 
   if service_restart; then
-    ok "已添加入站：$tag"
+    rm -f "$previous"
+    ok "$success_message"
     info "自动备份：$backup"
   else
     err "服务重启失败，正在回滚..."
-    rm -f "$CONF_DIR/$filename"
-    tar -xzf "$backup" -C "$XRAY_ROOT" "$(basename "$CONF_DIR")" 2>/dev/null || true
+    if (( had_previous )); then
+      cp -a "$previous" "$CONF_DIR/$filename"
+    else
+      rm -f "$CONF_DIR/$filename"
+    fi
+    rm -f "$previous"
     service_restart || true
     return 1
   fi
+}
+
+safe_write_inbound() {
+  local tag="$1" json="$2"
+  safe_write_config_file \
+    "10_inbound_$(sanitize_tag "$tag").json" \
+    "$json" \
+    "已添加入站：$tag"
+}
+
+safe_remove_config_file() {
+  local file="$1" success_message="$2" backup held
+  [[ -f "$file" && "$file" == "$CONF_DIR/"*.json ]] || {
+    err "目标不是可管理的配置文件。"
+    return 1
+  }
+
+  backup="$(backup_now)"
+  held="$(mktemp)"
+  mv "$file" "$held"
+
+  info "测试删除后的完整配置..."
+  if test_config && service_restart; then
+    rm -f "$held"
+    ok "$success_message"
+    info "自动备份：$backup"
+    return 0
+  fi
+
+  err "删除后配置或服务异常，正在回滚..."
+  mv "$held" "$file"
+  service_restart || true
+  return 1
 }
 
 port_in_use() {
@@ -2556,19 +2616,52 @@ add_wireguard() {
 
 add_tunnel() {
   need_xray || return
-  local tag listen port network target target_port json
+  local tag listen_choice listen_default listen port network_choice network
+  local target target_port outbound protocol file json
   TRANSPORT="tunnel"
   TRANSPORT_PATH=""; TRANSPORT_HOST=""; GRPC_SERVICE=""
   REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
 
   tag="$(ask_tag "tunnel")"
-  listen="$(ask_default "本地监听地址" "127.0.0.1")"
+  if has_global_ipv4; then
+    listen_default="1"
+  else
+    listen_default="2"
+  fi
+  echo "监听范围："
+  echo "1) 公网 IPv4（0.0.0.0）"
+  echo "2) 公网 IPv6（::）"
+  echo "3) 仅本机（127.0.0.1）"
+  echo "4) 自定义监听地址"
+  listen_choice="$(ask_default "请选择" "$listen_default")"
+  case "$listen_choice" in
+    2) listen="::" ;;
+    3) listen="127.0.0.1" ;;
+    4) listen="$(ask_required "本地监听地址")" ;;
+    *) listen="0.0.0.0" ;;
+  esac
   port="$(ask_port "本地监听端口" "25565")"
   warn_port "$port" || return
-  network="$(ask_default "网络 tcp / udp / tcp,udp" "tcp")"
-  [[ "$network" == "tcp" || "$network" == "udp" || "$network" == "tcp,udp" ]] || network="tcp"
+  echo "转发协议：1) TCP  2) UDP  3) TCP + UDP"
+  network_choice="$(ask_default "请选择" "1")"
+  case "$network_choice" in
+    2) network="udp" ;;
+    3) network="tcp,udp" ;;
+    *) network="tcp" ;;
+  esac
   target="$(ask_required "转发目标域名/IP")"
   target_port="$(ask_port "转发目标端口" "$port")"
+  outbound="$(choose_outbound_tag "该端口转发使用的出站" "direct")"
+  protocol="$(
+    file="$(find_outbound_file "$outbound" || true)"
+    if [[ -n "$file" ]]; then
+      jq -r --arg tag "$outbound" '.outbounds[]? | select(.tag == $tag) | .protocol' "$file"
+    fi
+  )"
+  if [[ "$protocol" == "http" && "$network" != "tcp" ]]; then
+    err "HTTP 出站不支持 UDP，请选择 TCP 或更换出站。"
+    return
+  fi
 
   json="$(jq -cn \
     --arg tag "$tag" --arg listen "$listen" --argjson port "$port" \
@@ -2586,9 +2679,24 @@ add_tunnel() {
 
   safe_write_inbound "$tag" "$json" || return
   if [[ "$listen" != "127.0.0.1" && "$listen" != "::1" ]]; then
-    maybe_ufw_for_transport "$port" "raw" "tunnel"
+    case "$network" in
+      tcp) ufw_allow_if_active "$port" "tcp" ;;
+      udp) ufw_allow_if_active "$port" "udp" ;;
+      tcp,udp)
+        ufw_allow_if_active "$port" "tcp"
+        ufw_allow_if_active "$port" "udp"
+        ;;
+    esac
+  fi
+  if [[ "$outbound" != "direct" ]]; then
+    if ! add_inbound_route_rule "$tag" "$outbound"; then
+      warn "端口转发已创建，但出站路由创建失败；当前会使用默认出站。"
+    fi
   fi
   show_created_summary "$tag" "tunnel" "$listen" "$port" ""
+  printf "  Target     : %s:%s\n" "$target" "$target_port"
+  printf "  Network    : %s\n" "$network"
+  printf "  Outbound   : %s\n\n" "$outbound"
 }
 
 add_tun() {
@@ -2759,9 +2867,13 @@ show_inbound_details() {
 
 delete_inbound() {
   need_xray || return
-  list_inbounds
-  local tag file backup tmp
-  tag="$(ask_required "输入要删除的 Tag")"
+  local requested="${1:-}" tag file backup tmp
+  if [[ -n "$requested" ]]; then
+    tag="$requested"
+  else
+    list_inbounds
+    tag="$(ask_required "输入要删除的 Tag")"
+  fi
   file="$(grep -Rl --include='10_inbound_*.json' "\"tag\"[[:space:]]*:[[:space:]]*\"$tag\"" "$CONF_DIR" 2>/dev/null | head -n 1 || true)"
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
 
@@ -2775,11 +2887,907 @@ delete_inbound() {
     rm -f "$tmp"
     ok "已删除：$tag"
     info "备份：$backup"
+    if ! remove_managed_route_tag "forward-$(sanitize_tag "$tag")"; then
+      warn "入站已删除，但对应的自动路由清理失败，请在路由菜单中检查。"
+    fi
   else
     err "删除后配置/服务异常，正在回滚。"
     mv "$tmp" "$file"
     service_restart || true
   fi
+}
+
+csv_to_json_array() {
+  local value="$1"
+  jq -cn --arg value "$value" '
+    $value
+    | split(",")
+    | map(gsub("^[[:space:]]+|[[:space:]]+$"; ""))
+    | map(select(length > 0))
+  '
+}
+
+outbound_tag_exists() {
+  local tag="$1" f
+  shopt -s nullglob
+  for f in "$CONF_DIR"/*.json; do
+    if jq -e --arg tag "$tag" '.outbounds[]? | select(.tag == $tag)' "$f" >/dev/null 2>&1; then
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+inbound_tag_exists() {
+  local tag="$1" f
+  shopt -s nullglob
+  for f in "$CONF_DIR"/*.json; do
+    if jq -e --arg tag "$tag" '.inbounds[]? | select(.tag == $tag)' "$f" >/dev/null 2>&1; then
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+find_outbound_file() {
+  local tag="$1" f
+  shopt -s nullglob
+  for f in "$CONF_DIR"/*.json; do
+    if jq -e --arg tag "$tag" '.outbounds[]? | select(.tag == $tag)' "$f" >/dev/null 2>&1; then
+      printf '%s' "$f"
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+list_outbounds() {
+  ensure_layout
+  local found=0 f
+  printf "\n%-24s %-14s %-32s %-8s\n" "TAG" "PROTOCOL" "SERVER / ENDPOINT" "PORT"
+  printf "%-24s %-14s %-32s %-8s\n" "------------------------" "--------------" "--------------------------------" "--------"
+  shopt -s nullglob
+  for f in "$CONF_DIR"/*.json; do
+    if jq -e '.outbounds | type == "array"' "$f" >/dev/null 2>&1; then
+      found=1
+      jq -r '
+        .outbounds[]? |
+        [
+          (.tag // "-"),
+          (.protocol // "-"),
+          (
+            .settings.peers[0].endpoint //
+            (
+              if (.settings.address | type) == "array"
+              then (.settings.address | join(","))
+              else .settings.address
+              end
+            ) //
+            "-"
+          ),
+          ((.settings.port // "-") | tostring)
+        ] | @tsv
+      ' "$f" 2>/dev/null |
+      while IFS=$'\t' read -r tag protocol server port; do
+        printf "%-24s %-14s %-32s %-8s\n" "$tag" "$protocol" "$server" "$port"
+      done
+    fi
+  done
+  shopt -u nullglob
+  (( found )) || echo "暂无出站。"
+  echo
+}
+
+choose_outbound_tag() {
+  local prompt="${1:-选择目标出站}" default="${2:-direct}" tag
+  list_outbounds >&2
+  while true; do
+    tag="$(ask_default "$prompt" "$default")"
+    if outbound_tag_exists "$tag"; then
+      printf '%s' "$tag"
+      return 0
+    fi
+    warn "未找到出站 Tag：$tag"
+  done
+}
+
+safe_write_outbound() {
+  local tag="$1" json="$2"
+  safe_write_config_file \
+    "20_outbound_$(sanitize_tag "$tag")_tail.json" \
+    "$json" \
+    "已添加出站：$tag"
+}
+
+add_freedom_outbound() {
+  need_xray || return
+  local tag c strategy send_through json
+  tag="$(ask_named_tag "出站" "direct-v4")"
+  echo "1) 自动/保持域名（AsIs）"
+  echo "2) 强制使用 IPv4（UseIPv4）"
+  echo "3) 强制使用 IPv6（UseIPv6）"
+  c="$(ask_default "请选择" "2")"
+  case "$c" in
+    1) strategy="AsIs" ;;
+    3) strategy="UseIPv6" ;;
+    *) strategy="UseIPv4" ;;
+  esac
+  send_through="$(ask_default "指定源 IP/CIDR（留空自动选择）" "")"
+  json="$(jq -cn \
+    --arg tag "$tag" --arg strategy "$strategy" --arg send "$send_through" '
+    {
+      outbounds:[
+        (
+          {
+            tag:$tag,
+            protocol:"freedom",
+            settings:{domainStrategy:$strategy}
+          }
+          + (if $send == "" then {} else {sendThrough:$send} end)
+        )
+      ]
+    }
+  ')"
+  safe_write_outbound "$tag" "$json"
+}
+
+add_plain_proxy_outbound() {
+  local protocol="$1"
+  need_xray || return
+  local tag address port auth user="" pass="" json
+  tag="$(ask_named_tag "出站" "${protocol}-out")"
+  address="$(ask_required "代理服务器域名/IP")"
+  if [[ "$protocol" == "http" ]]; then
+    port="$(ask_port "代理服务器端口" "3128")"
+    warn "HTTP 出站只支持 TCP；不要把明文 HTTP 代理暴露在不可信公网。"
+  else
+    port="$(ask_port "代理服务器端口" "1080")"
+  fi
+  auth="$(ask_default "是否需要用户名密码 y / n" "n")"
+  if [[ "${auth,,}" == "y" || "${auth,,}" == "yes" ]]; then
+    user="$(ask_required "用户名")"
+    pass="$(ask_required "密码")"
+  fi
+  json="$(jq -cn \
+    --arg tag "$tag" --arg protocol "$protocol" \
+    --arg address "$address" --argjson port "$port" \
+    --arg user "$user" --arg pass "$pass" '
+    {
+      outbounds:[
+        {
+          tag:$tag,
+          protocol:$protocol,
+          settings:
+            (
+              {address:$address,port:$port}
+              + (if $user == "" then {} else {user:$user,pass:$pass,level:0} end)
+            )
+        }
+      ]
+    }
+  ')"
+  safe_write_outbound "$tag" "$json"
+}
+
+add_shadowsocks_outbound() {
+  need_xray || return
+  local tag address port method password json
+  tag="$(ask_named_tag "出站" "ss-out")"
+  address="$(ask_required "Shadowsocks 服务器域名/IP")"
+  port="$(ask_port "服务器端口" "443")"
+  echo "推荐方法：2022-blake3-aes-128-gcm / 2022-blake3-aes-256-gcm"
+  method="$(ask_default "加密方法" "2022-blake3-aes-128-gcm")"
+  password="$(ask_required "密码/预共享密钥")"
+  json="$(jq -cn \
+    --arg tag "$tag" --arg address "$address" --argjson port "$port" \
+    --arg method "$method" --arg password "$password" '
+    {
+      outbounds:[
+        {
+          tag:$tag,
+          protocol:"shadowsocks",
+          settings:{
+            address:$address,
+            port:$port,
+            method:$method,
+            password:$password,
+            level:0
+          }
+        }
+      ]
+    }
+  ')"
+  safe_write_outbound "$tag" "$json"
+}
+
+add_wireguard_outbound() {
+  need_xray || return
+  local tag secret addresses endpoint public_key allowed reserved mtu keepalive strategy kernel
+  local addresses_json allowed_json reserved_json no_kernel json
+  tag="$(ask_named_tag "出站" "warp")"
+  secret="$(ask_required "WireGuard 客户端 PrivateKey")"
+  addresses="$(ask_required "客户端地址/CIDR，多个用逗号分隔")"
+  endpoint="$(ask_default "服务端 Endpoint" "engage.cloudflareclient.com:2408")"
+  public_key="$(ask_required "服务端 PublicKey")"
+  allowed="$(ask_default "AllowedIPs，多个用逗号分隔" "0.0.0.0/0,::/0")"
+  reserved="$(ask_default "Reserved 三个字节，普通 WireGuard 留空" "")"
+  mtu="$(ask_port "MTU" "1280")"
+  keepalive="$(ask_default "KeepAlive 秒数" "0")"
+  [[ "$keepalive" =~ ^[0-9]+$ ]] || keepalive=0
+  strategy="$(ask_default "域名策略 ForceIP / ForceIPv4 / ForceIPv6" "ForceIP")"
+  case "$strategy" in
+    ForceIP|ForceIPv4|ForceIPv6|ForceIPv6v4|ForceIPv4v6) ;;
+    *) strategy="ForceIP" ;;
+  esac
+  kernel="$(ask_default "使用内核 TUN（性能高，但可能受容器权限/路由表影响）y / n" "n")"
+  if [[ "${kernel,,}" == "y" || "${kernel,,}" == "yes" ]]; then
+    no_kernel=false
+  else
+    no_kernel=true
+  fi
+
+  addresses_json="$(csv_to_json_array "$addresses")"
+  allowed_json="$(csv_to_json_array "$allowed")"
+  if [[ -n "$reserved" ]]; then
+    reserved_json="$(jq -cn --arg value "$reserved" '
+      $value | split(",") | map(gsub("[[:space:]]"; "") | tonumber)
+    ' 2>/dev/null)" || {
+      err "Reserved 必须是逗号分隔的数字。"
+      return
+    }
+    if ! jq -e 'length == 3 and all(. >= 0 and . <= 255)' >/dev/null <<<"$reserved_json"; then
+      err "Reserved 必须正好包含 3 个 0-255 的数字。"
+      return
+    fi
+  else
+    reserved_json='[]'
+  fi
+
+  json="$(jq -cn \
+    --arg tag "$tag" --arg secret "$secret" \
+    --arg endpoint "$endpoint" --arg public "$public_key" \
+    --arg strategy "$strategy" --argjson addresses "$addresses_json" \
+    --argjson allowed "$allowed_json" --argjson reserved "$reserved_json" \
+    --argjson mtu "$mtu" --argjson keepalive "$keepalive" \
+    --argjson no_kernel "$no_kernel" '
+    {
+      outbounds:[
+        {
+          tag:$tag,
+          protocol:"wireguard",
+          settings:
+            (
+              {
+                secretKey:$secret,
+                address:$addresses,
+                peers:[
+                  {
+                    endpoint:$endpoint,
+                    publicKey:$public,
+                    allowedIPs:$allowed,
+                    keepAlive:$keepalive
+                  }
+                ],
+                noKernelTun:$no_kernel,
+                mtu:$mtu,
+                domainStrategy:$strategy
+              }
+              + (if ($reserved | length) == 0 then {} else {reserved:$reserved} end)
+            )
+        }
+      ]
+    }
+  ')"
+  safe_write_outbound "$tag" "$json"
+}
+
+import_custom_outbound() {
+  need_xray || return
+  local tag tmp input json
+  tag="$(ask_named_tag "出站" "custom-out")"
+  echo
+  echo '请粘贴单个 OutboundObject JSON，例如：'
+  echo '{"tag":"custom","protocol":"freedom","settings":{}}'
+  echo "输入完成后按 Ctrl-D："
+  tmp="$(mktemp)"
+  cat >"$tmp"
+  input="$(cat "$tmp")"
+  rm -f "$tmp"
+  jq -e 'type == "object" and (.protocol | type == "string")' >/dev/null <<<"$input" || {
+    err "输入不是有效的 OutboundObject。"
+    return
+  }
+  json="$(jq -cn --argjson outbound "$input" --arg tag "$tag" '
+    {outbounds:[($outbound + {tag:$tag})]}
+  ')"
+  safe_write_outbound "$tag" "$json"
+}
+
+show_outbound_details() {
+  list_outbounds
+  local tag file
+  tag="$(ask_required "输入要查看的出站 Tag")"
+  file="$(find_outbound_file "$tag" || true)"
+  [[ -n "$file" ]] || { err "未找到出站：$tag"; return; }
+  if confirm "显示完整敏感信息（密码、WireGuard 私钥等）？"; then
+    warn "请勿把完整输出粘贴到公开位置。"
+    jq --arg tag "$tag" '.outbounds[]? | select(.tag == $tag)' "$file"
+  else
+    jq --arg tag "$tag" '
+      .outbounds[]? | select(.tag == $tag) |
+      walk(
+        if type == "object" then
+          with_entries(
+            if (.key | ascii_downcase) as $key |
+              ($key == "password" or $key == "pass" or $key == "secretkey" or
+               $key == "presharedkey" or $key == "privatekey")
+            then .value = "<redacted>" else . end
+          )
+        else . end
+      )
+    ' "$file"
+  fi
+}
+
+outbound_is_referenced() {
+  local tag="$1" f
+  shopt -s nullglob
+  for f in "$CONF_DIR"/*.json; do
+    if jq -e --arg tag "$tag" '
+      .. | objects |
+      select(
+        .outboundTag? == $tag or
+        .proxySettings?.tag? == $tag or
+        .streamSettings?.sockopt?.dialerProxy? == $tag
+      )
+    ' "$f" >/dev/null 2>&1; then
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+delete_outbound() {
+  need_xray || return
+  list_outbounds
+  local tag file
+  tag="$(ask_required "输入要删除的出站 Tag")"
+  case "$tag" in
+    direct|block)
+      err "direct / block 是基础出站，不能删除。"
+      return
+      ;;
+  esac
+  file="$(find_outbound_file "$tag" || true)"
+  [[ -n "$file" ]] || { err "未找到出站：$tag"; return; }
+  [[ "$(basename "$file")" == 20_outbound_*_tail.json ]] || {
+    err "该出站不是由新版出站管理器创建，拒绝自动删除：$file"
+    return
+  }
+  if outbound_is_referenced "$tag"; then
+    err "仍有路由或链式出站引用 $tag，请先删除相关规则。"
+    return
+  fi
+  confirm "确认删除出站 $tag？" || return
+  safe_remove_config_file "$file" "已删除出站：$tag"
+}
+
+add_outbound_menu() {
+  while true; do
+    clear || true
+    echo "========== 添加 Xray 出站 =========="
+    echo "1) Freedom 直连（自动 / 强制 IPv4 / 强制 IPv6 / 指定源 IP）"
+    echo "2) SOCKS5（适合连接本机 WARP 或远程代理）"
+    echo "3) HTTP Proxy（仅 TCP）"
+    echo "4) WireGuard / WARP"
+    echo "5) Shadowsocks"
+    echo "6) 自定义 Outbound JSON"
+    echo "0) 返回"
+    local c
+    read -r -p "请选择: " c || true
+    case "$c" in
+      1) add_freedom_outbound; pause ;;
+      2) add_plain_proxy_outbound "socks"; pause ;;
+      3) add_plain_proxy_outbound "http"; pause ;;
+      4) add_wireguard_outbound; pause ;;
+      5) add_shadowsocks_outbound; pause ;;
+      6) import_custom_outbound; pause ;;
+      0) return ;;
+    esac
+  done
+}
+
+outbound_menu() {
+  while true; do
+    clear || true
+    echo "========== 出站管理 =========="
+    echo "1) 添加出站"
+    echo "2) 查看出站列表"
+    echo "3) 查看某出站配置"
+    echo "4) 删除出站"
+    echo "5) 测试完整 Xray 配置"
+    echo "0) 返回"
+    local c
+    read -r -p "请选择: " c || true
+    case "$c" in
+      1) add_outbound_menu ;;
+      2) list_outbounds; pause ;;
+      3) show_outbound_details; pause ;;
+      4) delete_outbound; pause ;;
+      5) test_config; pause ;;
+      0) return ;;
+    esac
+  done
+}
+
+routing_conflict_files() {
+  local f
+  shopt -s nullglob
+  for f in "$CONF_DIR"/*.json; do
+    [[ "$f" == "$ROUTING_FILE" ]] && continue
+    if jq -e 'has("routing")' "$f" >/dev/null 2>&1; then
+      printf '%s\n' "$f"
+    fi
+  done
+  shopt -u nullglob
+}
+
+routing_ready() {
+  local conflicts
+  conflicts="$(routing_conflict_files)"
+  if [[ -n "$conflicts" ]]; then
+    err "检测到其他配置文件已经定义 routing，自动管理可能覆盖旧规则："
+    printf '%s\n' "$conflicts" >&2
+    warn "请先手动合并/移除旧 routing；本脚本不会擅自接管。"
+    return 1
+  fi
+}
+
+current_routing_json() {
+  if [[ -f "$ROUTING_FILE" ]]; then
+    cat "$ROUTING_FILE"
+  else
+    jq -cn '{routing:{domainStrategy:"IPIfNonMatch",rules:[]}}'
+  fi
+}
+
+route_tag_exists() {
+  local tag="$1"
+  [[ -f "$ROUTING_FILE" ]] &&
+    jq -e --arg tag "$tag" '.routing.rules[]? | select(.ruleTag == $tag)' "$ROUTING_FILE" >/dev/null 2>&1
+}
+
+ask_route_tag() {
+  local default="$1" tag
+  while true; do
+    tag="$(ask_default "规则名称/RuleTag" "$default")"
+    tag="$(sanitize_tag "$tag")"
+    if ! route_tag_exists "$tag"; then
+      printf '%s' "$tag"
+      return
+    fi
+    warn "路由规则 $tag 已存在，请换一个名称。"
+  done
+}
+
+write_routing_json() {
+  local json="$1" message="$2"
+  routing_ready || return
+  safe_write_config_file "$(basename "$ROUTING_FILE")" "$json" "$message"
+}
+
+append_route_rule() {
+  local rule="$1" message="$2" current next
+  routing_ready || return
+  current="$(current_routing_json)"
+  next="$(jq -c --argjson rule "$rule" '
+    .routing.rules = (
+      [(.routing.rules // [])[] | select(.ruleTag != "manager-default")]
+      + [$rule]
+      + [(.routing.rules // [])[] | select(.ruleTag == "manager-default")]
+    )
+  ' <<<"$current")"
+  write_routing_json "$next" "$message"
+}
+
+add_inbound_route_rule() {
+  local inbound="$1" outbound="$2" rule_tag rule
+  [[ "$outbound" != "direct" ]] || return 0
+  rule_tag="forward-$(sanitize_tag "$inbound")"
+  if route_tag_exists "$rule_tag"; then
+    warn "已存在端口转发路由：$rule_tag"
+    return 0
+  fi
+  rule="$(jq -cn \
+    --arg rule_tag "$rule_tag" --arg inbound "$inbound" --arg outbound "$outbound" '
+    {
+      type:"field",
+      ruleTag:$rule_tag,
+      inboundTag:[$inbound],
+      outboundTag:$outbound
+    }
+  ')"
+  append_route_rule "$rule" "已将入站 $inbound 路由到出站 $outbound"
+}
+
+list_routing_rules() {
+  routing_ready || return
+  if [[ ! -f "$ROUTING_FILE" ]]; then
+    echo "暂无由本脚本管理的路由规则。"
+    return
+  fi
+  echo
+  printf "%-5s %-24s %-48s %-20s\n" "序号" "RULE TAG" "MATCH" "TARGET"
+  printf "%-5s %-24s %-48s %-20s\n" "-----" "------------------------" "------------------------------------------------" "--------------------"
+  jq -r '
+    .routing.rules // [] |
+    to_entries[] |
+    .key as $index | .value as $rule |
+    [
+      (($index + 1) | tostring),
+      ($rule.ruleTag // ("rule-" + (($index + 1) | tostring))),
+      (
+        [
+          (if $rule.inboundTag then "in=" + ($rule.inboundTag | join(",")) else empty end),
+          (if $rule.domain then "domain=" + ($rule.domain | join(",")) else empty end),
+          (if $rule.ip then "ip=" + ($rule.ip | join(",")) else empty end),
+          (if $rule.port then "port=" + ($rule.port | tostring) else empty end),
+          (if $rule.network then "net=" + $rule.network else empty end),
+          (if $rule.protocol then "proto=" + ($rule.protocol | join(",")) else empty end)
+        ] | join(";")
+      ),
+      ($rule.outboundTag // ("balancer:" + ($rule.balancerTag // "-")))
+    ] | @tsv
+  ' "$ROUTING_FILE" |
+  while IFS=$'\t' read -r index tag match target; do
+    printf "%-5s %-24s %-48s %-20s\n" "$index" "$tag" "${match:--}" "$target"
+  done
+  echo
+  printf "Domain strategy: %s\n\n" "$(jq -r '.routing.domainStrategy // "AsIs"' "$ROUTING_FILE")"
+}
+
+add_domain_route() {
+  local tag domains outbound domains_json rule
+  tag="$(ask_route_tag "domain-route")"
+  domains="$(ask_required "域名规则，逗号分隔（如 geosite:google,domain:example.com）")"
+  domains_json="$(csv_to_json_array "$domains")"
+  outbound="$(choose_outbound_tag)"
+  rule="$(jq -cn \
+    --arg tag "$tag" --arg outbound "$outbound" --argjson domains "$domains_json" '
+    {type:"field",ruleTag:$tag,domain:$domains,outboundTag:$outbound}
+  ')"
+  append_route_rule "$rule" "已添加域名路由：$tag"
+}
+
+add_ip_route() {
+  local tag ips outbound ips_json rule
+  tag="$(ask_route_tag "ip-route")"
+  ips="$(ask_required "IP/CIDR/GeoIP，逗号分隔（如 geoip:telegram,1.1.1.0/24）")"
+  ips_json="$(csv_to_json_array "$ips")"
+  outbound="$(choose_outbound_tag)"
+  rule="$(jq -cn \
+    --arg tag "$tag" --arg outbound "$outbound" --argjson ips "$ips_json" '
+    {type:"field",ruleTag:$tag,ip:$ips,outboundTag:$outbound}
+  ')"
+  append_route_rule "$rule" "已添加 IP 路由：$tag"
+}
+
+add_inbound_route() {
+  local tag inbound outbound rule
+  list_inbounds
+  tag="$(ask_route_tag "inbound-route")"
+  inbound="$(ask_required "入站 Tag")"
+  inbound_tag_exists "$inbound" || { err "未找到入站 Tag：$inbound"; return; }
+  outbound="$(choose_outbound_tag)"
+  rule="$(jq -cn \
+    --arg tag "$tag" --arg inbound "$inbound" --arg outbound "$outbound" '
+    {type:"field",ruleTag:$tag,inboundTag:[$inbound],outboundTag:$outbound}
+  ')"
+  append_route_rule "$rule" "已添加入站路由：$tag"
+}
+
+add_ip_family_route() {
+  local family="$1" tag outbound cidr rule
+  if [[ "$family" == "4" ]]; then
+    tag="$(ask_route_tag "ipv4-route")"
+    cidr="0.0.0.0/0"
+  else
+    tag="$(ask_route_tag "ipv6-route")"
+    cidr="::/0"
+  fi
+  outbound="$(choose_outbound_tag)"
+  rule="$(jq -cn \
+    --arg tag "$tag" --arg cidr "$cidr" --arg outbound "$outbound" '
+    {type:"field",ruleTag:$tag,ip:[$cidr],outboundTag:$outbound}
+  ')"
+  append_route_rule "$rule" "已添加 IPv${family} 全局路由：$tag"
+}
+
+add_china_direct_preset() {
+  local current next
+  routing_ready || return
+  if route_tag_exists "cn-domain-direct" || route_tag_exists "cn-ip-direct"; then
+    err "中国大陆直连预设已经存在。"
+    return
+  fi
+  current="$(current_routing_json)"
+  next="$(jq -c '
+    .routing.rules = (
+      [(.routing.rules // [])[] | select(.ruleTag != "manager-default")]
+      + [
+      {
+        type:"field",
+        ruleTag:"cn-domain-direct",
+        domain:["geosite:cn"],
+        outboundTag:"direct"
+      },
+      {
+        type:"field",
+        ruleTag:"cn-ip-direct",
+        ip:["geoip:cn"],
+        outboundTag:"direct"
+      }
+      ]
+      + [(.routing.rules // [])[] | select(.ruleTag == "manager-default")]
+    )
+  ' <<<"$current")"
+  write_routing_json "$next" "已添加中国大陆域名/IP直连预设"
+}
+
+add_service_route_preset() {
+  local choice service geosite geoip="" outbound domain_tag ip_tag current next
+  echo "1) Google"
+  echo "2) Telegram（域名 + IP）"
+  echo "3) OpenAI"
+  echo "4) Netflix（域名 + IP）"
+  echo "5) YouTube"
+  choice="$(ask_default "请选择" "3")"
+  case "$choice" in
+    1) service="google"; geosite="geosite:google" ;;
+    2) service="telegram"; geosite="geosite:telegram"; geoip="geoip:telegram" ;;
+    4) service="netflix"; geosite="geosite:netflix"; geoip="geoip:netflix" ;;
+    5) service="youtube"; geosite="geosite:youtube" ;;
+    *) service="openai"; geosite="geosite:openai" ;;
+  esac
+  outbound="$(choose_outbound_tag)"
+  domain_tag="service-${service}-domain"
+  ip_tag="service-${service}-ip"
+  if route_tag_exists "$domain_tag" || { [[ -n "$geoip" ]] && route_tag_exists "$ip_tag"; }; then
+    err "${service} 预设已经存在。"
+    return
+  fi
+  current="$(current_routing_json)"
+  next="$(jq -c \
+    --arg domain_tag "$domain_tag" --arg ip_tag "$ip_tag" \
+    --arg geosite "$geosite" --arg geoip "$geoip" --arg outbound "$outbound" '
+    .routing.rules = (
+      [(.routing.rules // [])[] | select(.ruleTag != "manager-default")]
+      + [{
+          type:"field",
+          ruleTag:$domain_tag,
+          domain:[$geosite],
+          outboundTag:$outbound
+        }]
+      + (
+          if $geoip == "" then []
+          else [{
+            type:"field",
+            ruleTag:$ip_tag,
+            ip:[$geoip],
+            outboundTag:$outbound
+          }]
+          end
+        )
+      + [(.routing.rules // [])[] | select(.ruleTag == "manager-default")]
+    )
+  ' <<<"$current")"
+  write_routing_json "$next" "已添加 ${service} 分流预设 → $outbound"
+}
+
+add_block_preset() {
+  local kind="$1" tag rule
+  case "$kind" in
+    ads)
+      tag="$(ask_route_tag "block-ads")"
+      rule="$(jq -cn --arg tag "$tag" '
+        {type:"field",ruleTag:$tag,domain:["geosite:category-ads-all"],outboundTag:"block"}
+      ')"
+      ;;
+    bittorrent)
+      tag="$(ask_route_tag "block-bittorrent")"
+      rule="$(jq -cn --arg tag "$tag" '
+        {type:"field",ruleTag:$tag,protocol:["bittorrent"],outboundTag:"block"}
+      ')"
+      warn "BT 识别依赖入站 sniffing，且加密/混淆 BT 可能无法完全识别。"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  append_route_rule "$rule" "已添加拦截规则：$tag"
+}
+
+set_default_outbound_route() {
+  local outbound current next
+  outbound="$(choose_outbound_tag "最终默认出站" "direct")"
+  current="$(current_routing_json)"
+  next="$(jq -c --arg outbound "$outbound" '
+    .routing.rules = (
+      [(.routing.rules // [])[] | select(.ruleTag != "manager-default")]
+      + [{
+          type:"field",
+          ruleTag:"manager-default",
+          network:"tcp,udp",
+          outboundTag:$outbound
+        }]
+    )
+  ' <<<"$current")"
+  write_routing_json "$next" "已设置最终默认出站：$outbound"
+}
+
+remove_managed_route_tag() {
+  local tag="$1" current next
+  [[ -f "$ROUTING_FILE" ]] || return 0
+  route_tag_exists "$tag" || return 0
+  routing_ready || return 1
+  current="$(current_routing_json)"
+  next="$(jq -c --arg tag "$tag" '
+    .routing.rules = [(.routing.rules // [])[] | select(.ruleTag != $tag)]
+  ' <<<"$current")"
+  write_routing_json "$next" "已清理关联路由：$tag"
+}
+
+import_custom_route_rule() {
+  local tmp input tag rule
+  tag="$(ask_route_tag "custom-route")"
+  echo '请粘贴单个 RuleObject JSON，输入完成后按 Ctrl-D：'
+  tmp="$(mktemp)"
+  cat >"$tmp"
+  input="$(cat "$tmp")"
+  rm -f "$tmp"
+  jq -e '
+    type == "object" and
+    ((.outboundTag? | type == "string") or (.balancerTag? | type == "string"))
+  ' >/dev/null <<<"$input" || {
+    err "规则必须是 JSON 对象，并包含 outboundTag 或 balancerTag。"
+    return
+  }
+  rule="$(jq -c --arg tag "$tag" '. + {type:"field",ruleTag:$tag}' <<<"$input")"
+  append_route_rule "$rule" "已添加自定义路由：$tag"
+}
+
+delete_routing_rule() {
+  routing_ready || return
+  [[ -f "$ROUTING_FILE" ]] || { warn "暂无路由规则。"; return; }
+  list_routing_rules
+  local number count current next name
+  number="$(ask_required "要删除的规则序号")"
+  [[ "$number" =~ ^[0-9]+$ ]] || { err "序号无效。"; return; }
+  count="$(jq '.routing.rules | length' "$ROUTING_FILE")"
+  (( number >= 1 && number <= count )) || { err "序号超出范围。"; return; }
+  name="$(jq -r --argjson index "$((number - 1))" '.routing.rules[$index].ruleTag // "unnamed"' "$ROUTING_FILE")"
+  confirm "确认删除路由 $name？" || return
+  current="$(current_routing_json)"
+  next="$(jq -c --argjson index "$((number - 1))" '
+    .routing.rules |= del(.[$index])
+  ' <<<"$current")"
+  write_routing_json "$next" "已删除路由：$name"
+}
+
+move_routing_rule() {
+  routing_ready || return
+  [[ -f "$ROUTING_FILE" ]] || { warn "暂无路由规则。"; return; }
+  list_routing_rules
+  local number direction count index target current next
+  number="$(ask_required "要移动的规则序号")"
+  [[ "$number" =~ ^[0-9]+$ ]] || { err "序号无效。"; return; }
+  count="$(jq '.routing.rules | length' "$ROUTING_FILE")"
+  (( number >= 1 && number <= count )) || { err "序号超出范围。"; return; }
+  direction="$(ask_default "方向 u=上移 / d=下移" "u")"
+  index=$((number - 1))
+  if [[ "${direction,,}" == "d" ]]; then
+    target=$((index + 1))
+  else
+    target=$((index - 1))
+  fi
+  (( target >= 0 && target < count )) || { warn "已经在最前或最后。"; return; }
+  current="$(current_routing_json)"
+  next="$(jq -c --argjson index "$index" --argjson target "$target" '
+    .routing.rules as $rules |
+    .routing.rules[$index] = $rules[$target] |
+    .routing.rules[$target] = $rules[$index]
+  ' <<<"$current")"
+  write_routing_json "$next" "已调整路由优先级"
+}
+
+set_routing_domain_strategy() {
+  local strategy current next
+  echo "1) AsIs（只按域名规则匹配，不为 IP 规则额外解析）"
+  echo "2) IPIfNonMatch（域名未命中时再解析 IP，推荐）"
+  echo "3) IPOnDemand（遇到 IP 规则立即解析）"
+  strategy="$(ask_default "请选择" "2")"
+  case "$strategy" in
+    1) strategy="AsIs" ;;
+    3) strategy="IPOnDemand" ;;
+    *) strategy="IPIfNonMatch" ;;
+  esac
+  current="$(current_routing_json)"
+  next="$(jq -c --arg strategy "$strategy" '.routing.domainStrategy = $strategy' <<<"$current")"
+  write_routing_json "$next" "已设置路由域名策略：$strategy"
+}
+
+add_routing_rule_menu() {
+  while true; do
+    clear || true
+    echo "========== 添加路由/分流 =========="
+    echo "1) 常用服务（Google / Telegram / OpenAI / Netflix / YouTube）"
+    echo "2) 域名 / GeoSite → 指定出站"
+    echo "3) IP / CIDR / GeoIP → 指定出站"
+    echo "4) 指定入站的全部流量 → 指定出站"
+    echo "5) 所有 IPv4 目标 → 指定出站"
+    echo "6) 所有 IPv6 目标 → 指定出站"
+    echo "7) 中国大陆域名 + IP 直连预设"
+    echo "8) 广告域名拦截预设"
+    echo "9) BitTorrent 拦截预设"
+    echo "10) 设置最终默认出站"
+    echo "11) 自定义 RuleObject JSON"
+    echo "0) 返回"
+    local c
+    read -r -p "请选择: " c || true
+    case "$c" in
+      1) add_service_route_preset; pause ;;
+      2) add_domain_route; pause ;;
+      3) add_ip_route; pause ;;
+      4) add_inbound_route; pause ;;
+      5) add_ip_family_route "4"; pause ;;
+      6) add_ip_family_route "6"; pause ;;
+      7) add_china_direct_preset; pause ;;
+      8) add_block_preset "ads"; pause ;;
+      9) add_block_preset "bittorrent"; pause ;;
+      10) set_default_outbound_route; pause ;;
+      11) import_custom_route_rule; pause ;;
+      0) return ;;
+    esac
+  done
+}
+
+routing_menu() {
+  while true; do
+    clear || true
+    echo "========== 路由与分流 =========="
+    echo "规则从上到下匹配，命中第一条后停止。"
+    echo "1) 添加规则 / 常用预设"
+    echo "2) 查看规则顺序"
+    echo "3) 删除规则"
+    echo "4) 上移 / 下移规则"
+    echo "5) 设置 Domain Strategy"
+    echo "6) 查看完整 routing JSON"
+    echo "0) 返回"
+    local c
+    read -r -p "请选择: " c || true
+    case "$c" in
+      1) routing_ready && add_routing_rule_menu ;;
+      2) list_routing_rules; pause ;;
+      3) delete_routing_rule; pause ;;
+      4) move_routing_rule; pause ;;
+      5) routing_ready && set_routing_domain_strategy; pause ;;
+      6)
+        routing_ready && {
+          if [[ -f "$ROUTING_FILE" ]]; then jq . "$ROUTING_FILE"; else echo "暂无路由配置。"; fi
+        }
+        pause
+        ;;
+      0) return ;;
+    esac
+  done
 }
 
 update_xray() {
@@ -3157,26 +4165,108 @@ update_manager_script() {
   warn "当前仍是更新前的菜单进程；退出后重新运行 sudo xraym 即可载入新版。"
 }
 
+inbound_management_menu() {
+  while true; do
+    clear || true
+    echo "========== 入站管理 =========="
+    echo "1) 添加入站协议"
+    echo "2) 查看入站列表"
+    echo "3) 查看某入站完整配置"
+    echo "4) 删除入站"
+    echo "0) 返回"
+    local c
+    read -r -p "请选择: " c || true
+    case "$c" in
+      1) add_inbound_menu ;;
+      2) list_inbounds; pause ;;
+      3) show_inbound_details; pause ;;
+      4) delete_inbound; pause ;;
+      0) return ;;
+    esac
+  done
+}
+
+list_port_forwards() {
+  ensure_layout
+  local found=0 f
+  printf "\n%-24s %-24s %-8s %-36s %-10s\n" "TAG" "LISTEN" "PORT" "TARGET" "NETWORK"
+  printf "%-24s %-24s %-8s %-36s %-10s\n" "------------------------" "------------------------" "--------" "------------------------------------" "----------"
+  shopt -s nullglob
+  for f in "$CONF_DIR"/10_inbound_*.json; do
+    if jq -e '.inbounds[]? | select(.protocol == "tunnel")' "$f" >/dev/null 2>&1; then
+      found=1
+      jq -r '
+        .inbounds[]? | select(.protocol == "tunnel") |
+        [
+          (.tag // "-"),
+          (.listen // "-"),
+          ((.port // "-") | tostring),
+          ((.settings.rewriteAddress // "-") + ":" + ((.settings.rewritePort // "-") | tostring)),
+          (.settings.allowedNetwork // "tcp")
+        ] | @tsv
+      ' "$f" |
+      while IFS=$'\t' read -r tag listen port target network; do
+        printf "%-24s %-24s %-8s %-36s %-10s\n" "$tag" "$listen" "$port" "$target" "$network"
+      done
+    fi
+  done
+  shopt -u nullglob
+  (( found )) || echo "暂无端口转发。"
+  echo
+}
+
+delete_port_forward() {
+  list_port_forwards
+  local tag file
+  tag="$(ask_required "输入要删除的端口转发 Tag")"
+  file="$(grep -Rl --include='10_inbound_*.json' "\"tag\"[[:space:]]*:[[:space:]]*\"$tag\"" "$CONF_DIR" 2>/dev/null | head -n 1 || true)"
+  [[ -n "$file" ]] || { err "未找到端口转发：$tag"; return; }
+  jq -e --arg tag "$tag" '.inbounds[]? | select(.tag == $tag and .protocol == "tunnel")' "$file" >/dev/null 2>&1 || {
+    err "$tag 不是 Tunnel 端口转发。"
+    return
+  }
+  delete_inbound "$tag"
+}
+
+port_forward_menu() {
+  while true; do
+    clear || true
+    echo "========== 端口转发 =========="
+    echo "1) 新增端口转发"
+    echo "2) 查看端口转发列表"
+    echo "3) 删除端口转发"
+    echo "0) 返回"
+    local c
+    read -r -p "请选择: " c || true
+    case "$c" in
+      1) add_tunnel; pause ;;
+      2) list_port_forwards; pause ;;
+      3) delete_port_forward; pause ;;
+      0) return ;;
+    esac
+  done
+}
+
 main_menu() {
   while true; do
     clear || true
     printf "${C_CYAN}${C_BOLD}Xray Manager %s${C_RESET}\n" "$SCRIPT_VERSION"
     echo "=================================================="
     echo "1) 一键安装 / 修复 Xray"
-    echo "2) 添加入站协议"
-    echo "3) 查看入站列表"
-    echo "4) 查看某入站完整配置"
-    echo "5) 删除入站"
+    echo "2) 入站管理"
+    echo "3) 出站管理"
+    echo "4) 路由与分流"
+    echo "5) 端口转发"
     echo "6) 更新 Xray-core"
     echo "7) 更新 GeoIP / GeoSite"
-    echo "8) UFW 防火墙"
-    echo "9) BBR"
-    echo "10) TLS 证书管理"
-    echo "11) Xray 服务 / 配置测试 / 日志"
-    echo "12) 备份 / 恢复"
-    echo "13) 系统信息"
-    echo "14) IPv6-only / NAT64 网络助手"
-    echo "15) 完全离线安装 / 导入 Xray + GeoData"
+    echo "8) Xray 服务 / 配置测试 / 日志"
+    echo "9) 备份 / 恢复"
+    echo "10) UFW 防火墙"
+    echo "11) BBR"
+    echo "12) TLS 证书管理"
+    echo "13) IPv6-only / NAT64 网络助手"
+    echo "14) 完全离线安装 / 导入 Xray + GeoData"
+    echo "15) 系统信息"
     echo "16) 更新 Xray Manager 脚本"
     echo "0) 退出"
     echo "=================================================="
@@ -3185,25 +4275,25 @@ main_menu() {
     read -r -p "请选择: " c || true
     case "$c" in
       1) install_or_repair_xray; pause ;;
-      2) add_inbound_menu ;;
-      3) list_inbounds; pause ;;
-      4) show_inbound_details; pause ;;
-      5) delete_inbound; pause ;;
+      2) inbound_management_menu ;;
+      3) outbound_menu ;;
+      4) routing_menu ;;
+      5) port_forward_menu ;;
       6) update_xray; pause ;;
       7) update_geodata; pause ;;
-      8) ufw_menu ;;
-      9)
+      8) service_menu ;;
+      9) backup_menu ;;
+      10) ufw_menu ;;
+      11)
         echo "1) 启用/修复 BBR  2) 查看 BBR 状态"
         read -r -p "请选择 [1]: " c || true
         if [[ "${c:-1}" == "2" ]]; then bbr_status; else enable_bbr; fi
         pause
         ;;
-      10) certificate_menu; pause ;;
-      11) service_menu ;;
-      12) backup_menu ;;
-      13) system_info; pause ;;
-      14) ipv6_only_menu ;;
-      15) offline_import_menu; pause ;;
+      12) certificate_menu; pause ;;
+      13) ipv6_only_menu ;;
+      14) offline_import_menu; pause ;;
+      15) system_info; pause ;;
       16) update_manager_script; pause ;;
       0) echo "Bye."; exit 0 ;;
       *) warn "无效选择。"; sleep 1 ;;

@@ -4,6 +4,7 @@ IFS=$'\n\t'
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 XRAY_TEST_BIN="${XRAY_TEST_BIN:-}"
+XRAY_TEST_ASSET_DIR="${XRAY_TEST_ASSET_DIR:-$(dirname "$XRAY_TEST_BIN")}"
 
 [[ -x "$XRAY_TEST_BIN" ]] || {
   echo "XRAY_TEST_BIN must point to an executable Xray binary." >&2
@@ -25,11 +26,12 @@ reset_case() {
   XRAY_ROOT="$TEST_ROOT/$name"
   CONF_DIR="$XRAY_ROOT/conf.d"
   CERT_DIR="$XRAY_ROOT/certs"
-  ASSET_DIR="$TEST_ROOT/assets"
+  ASSET_DIR="$XRAY_TEST_ASSET_DIR"
   LOG_DIR="$XRAY_ROOT/log"
   STATE_DIR="$XRAY_ROOT/state"
   BACKUP_DIR="$STATE_DIR/backups"
   BASE_FILE="$CONF_DIR/00_base.json"
+  ROUTING_FILE="$CONF_DIR/30_routing.json"
   DOWNLOAD_PROXY_FILE="$STATE_DIR/download_proxy"
   DNS64_STATE_FILE="$STATE_DIR/dns64.state"
   XRAY_RUN_GROUP="$(id -gn)"
@@ -158,6 +160,89 @@ test_wireguard() {
   assert_config
 }
 
+test_outbounds_routing_and_forwarding() {
+  reset_case outbound-routing
+
+  add_freedom_outbound <<< $'\n2\n\n' >/dev/null
+  jq -e '
+    .outbounds[0].tag == "direct-v4" and
+    .outbounds[0].protocol == "freedom" and
+    .outbounds[0].settings.domainStrategy == "UseIPv4"
+  ' "$CONF_DIR/20_outbound_direct-v4_tail.json" >/dev/null
+
+  add_plain_proxy_outbound "socks" <<< $'warp-socks\n127.0.0.1\n40000\nn\n' >/dev/null
+  jq -e '
+    .outbounds[0].protocol == "socks" and
+    .outbounds[0].settings.address == "127.0.0.1" and
+    .outbounds[0].settings.port == 40000
+  ' "$CONF_DIR/20_outbound_warp-socks_tail.json" >/dev/null
+
+  add_plain_proxy_outbound "http" <<< $'http-out\n127.0.0.1\n3128\nn\n' >/dev/null
+  jq -e '
+    .outbounds[0].protocol == "http" and
+    .outbounds[0].settings.port == 3128
+  ' "$CONF_DIR/20_outbound_http-out_tail.json" >/dev/null
+
+  add_shadowsocks_outbound <<< $'ss-out\n127.0.0.1\n8388\n2022-blake3-aes-128-gcm\nMTIzNDU2Nzg5MDEyMzQ1Ng==\n' >/dev/null
+  jq -e '
+    .outbounds[0].protocol == "shadowsocks" and
+    .outbounds[0].settings.method == "2022-blake3-aes-128-gcm"
+  ' "$CONF_DIR/20_outbound_ss-out_tail.json" >/dev/null
+
+  add_wireguard_outbound <<< $'warp-native\nsK2oMSqqEg22cmF4d33HTUdTo1xTu9VZ+RNw6YNPXFY=\n172.16.0.2/32\n\nVKtOMD/fGswMa9Lq7XW1QmfUWZtcZ+IlOUGMUzYYuF4=\n\n\n\n\n\n\n' >/dev/null
+  jq -e '
+    .outbounds[0].protocol == "wireguard" and
+    .outbounds[0].settings.noKernelTun == true and
+    .outbounds[0].settings.peers[0].endpoint == "engage.cloudflareclient.com:2408"
+  ' "$CONF_DIR/20_outbound_warp-native_tail.json" >/dev/null
+
+  add_domain_route <<< $'\ngeosite:google\ndirect-v4\n' >/dev/null
+  add_service_route_preset <<< $'3\ndirect-v4\n' >/dev/null
+  set_default_outbound_route <<< $'direct-v4\n' >/dev/null
+  add_ip_family_route "6" <<< $'\ndirect-v4\n' >/dev/null
+
+  jq -e '
+    .routing.domainStrategy == "IPIfNonMatch" and
+    .routing.rules[0].ruleTag == "domain-route" and
+    .routing.rules[1].ruleTag == "service-openai-domain" and
+    .routing.rules[2].ruleTag == "ipv6-route" and
+    .routing.rules[-1].ruleTag == "manager-default"
+  ' "$ROUTING_FILE" >/dev/null
+
+  add_tunnel <<< $'game-forward\n1\n25565\n3\nexample.com\n25565\ndirect-v4\n' >/dev/null
+  jq -e '
+    .inbounds[0].protocol == "tunnel" and
+    .inbounds[0].listen == "0.0.0.0" and
+    .inbounds[0].settings.allowedNetwork == "tcp,udp" and
+    .inbounds[0].settings.rewriteAddress == "example.com"
+  ' "$CONF_DIR/10_inbound_game-forward.json" >/dev/null
+  jq -e '
+    .routing.rules[] |
+    select(
+      .ruleTag == "forward-game-forward" and
+      .inboundTag[0] == "game-forward" and
+      .outboundTag == "direct-v4"
+    )
+  ' "$ROUTING_FILE" >/dev/null
+  assert_config
+
+  delete_inbound "game-forward" <<< $'y\n' >/dev/null
+  [[ ! -f "$CONF_DIR/10_inbound_game-forward.json" ]]
+  ! jq -e '.routing.rules[]? | select(.ruleTag == "forward-game-forward")' \
+    "$ROUTING_FILE" >/dev/null
+  assert_config
+}
+
+test_routing_conflict_guard() {
+  reset_case routing-conflict
+  jq -n '{routing:{domainStrategy:"AsIs",rules:[]}}' >"$CONF_DIR/40_legacy-routing.json"
+  if routing_ready >/dev/null 2>&1; then
+    echo "routing_ready unexpectedly accepted a legacy routing object" >&2
+    return 1
+  fi
+  [[ ! -f "$ROUTING_FILE" ]]
+}
+
 test_retry_inputs
 test_reality_target_risk_detection
 test_high_risk_target_can_disable_limits
@@ -172,5 +257,7 @@ test_basic_inbounds
 test_hysteria
 test_trojan_tls
 test_wireguard
+test_outbounds_routing_and_forwarding
+test_routing_conflict_guard
 
 echo "All Xray configuration smoke tests passed."
