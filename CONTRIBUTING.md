@@ -2,6 +2,23 @@
 
 这是一个以个人维护为主的 VPS 管理脚本。
 
+## 从问题定位代码
+
+先用可搜索的维护导航把故障现象映射到实现文件、对应测试和文档：
+
+```bash
+bash scripts/maintainer-map.sh "路由规则顺序"
+bash scripts/maintainer-map.sh "Worker 401"
+bash scripts/maintainer-map.sh --list
+```
+
+详细边界、安全约束和测试选择见 [维护与故障定位指南](docs/MAINTAINER_GUIDE.md)。移动文件、改变模块职责或新增维护区域时，必须同步更新 `MAP_ROWS` 并运行：
+
+```bash
+bash scripts/maintainer-map.sh --check
+bash tests/maintainer-map.sh
+```
+
 ## 修改原则
 
 - 优先兼容常见 VPS 发行版
@@ -19,12 +36,15 @@ bash -n xray-manager.sh
 bash -n install.sh
 bash -n offline-install.sh
 bash -n cloudflare-install.sh
+bash -n scripts/maintainer-map.sh
+bash -n tests/maintainer-map.sh
 ```
 
 推荐同时运行：
 
 ```bash
-shellcheck xray-manager.sh install.sh offline-install.sh cloudflare-install.sh
+shellcheck xray-manager.sh install.sh offline-install.sh cloudflare-install.sh \
+  scripts/maintainer-map.sh tests/maintainer-map.sh
 ```
 
 ## 版本

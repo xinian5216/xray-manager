@@ -24,6 +24,8 @@ jobs:
           bash -n cloudflare-install.sh
           bash -n scripts/refresh-checksums.sh
           bash -n scripts/select-xray-release.sh
+          bash -n scripts/maintainer-map.sh
+          bash -n tests/maintainer-map.sh
           bash -n tests/smoke-configs.sh
           bash -n tests/offline-install.sh
           bash -n tests/cloudflare-update.sh
@@ -39,12 +41,15 @@ jobs:
           grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' XRAY_VERSION
       - name: Verify SHA256SUMS
         run: sha256sum -c SHA256SUMS
+      - name: Verify maintainer navigation
+        run: bash tests/maintainer-map.sh
       - name: Install ShellCheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: ShellCheck launchers
         run: shellcheck -S warning xray-manager.sh install.sh offline-install.sh cloudflare-install.sh scripts/refresh-checksums.sh scripts/select-xray-release.sh
       - name: ShellCheck core
         run: |
+          shellcheck -S warning scripts/maintainer-map.sh tests/maintainer-map.sh
           shellcheck -S warning lib/xray-manager-core.sh
           # The smoke test intentionally rebinds globals consumed by sourced Core functions.
           shellcheck -e SC2034 -S warning tests/smoke-configs.sh
