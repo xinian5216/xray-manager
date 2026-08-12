@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+- 修复 R2 发布工作流无法从每日重建、没有旧提交历史的上游 `release` 分支解析 7 天前 GeoData，导致 v1.4.0 后离线包持续停止更新的问题。
+- GeoData 延迟策略改为按 GitHub Releases 的 `published_at` 选择完整历史版本，并验证四个必需资产与 SHA256。
+
 ## v1.6.0 / Core v1.6.0 - 2026-08-11
 
 ### Added

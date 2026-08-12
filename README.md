@@ -253,7 +253,7 @@ Worker 本身不保存或打包 Xray，它只负责鉴权并读取私有 R2。R2
 
 1. 从 XTLS/Xray-core Releases 中选择正式稳定版，不采用 Pre-release；新稳定版发布满 14 天后才允许进入 R2，期间继续使用上一版。
 2. 下载 AMD64 / ARM64 官方 Xray ZIP。
-3. 按 Xray 官方构建采用的来源，选择 Loyalsoldier `v2ray-rules-dat` 至少 7 天前的 GeoIP / GeoSite 快照，并校验其 SHA256。
+3. 从 Loyalsoldier `v2ray-rules-dat` 的 GitHub Releases 按 `published_at` 选择至少 7 天前、且四个 GeoData 与校验资产齐全的版本，再校验 SHA256；不依赖会被每日重建的 `release` 分支历史。
 4. 用待发布的 Xray 对全部配置和 GeoData 做测试；只有全部通过才覆盖 R2 对象。
 
 因此 Xray Core 和规则库都不会在发布当天盲目追新；Core 观察 14 天，GeoData 观察 7 天。观察期结束后，上游下载失败、哈希不一致或新 Core 与现有配置不兼容时，工作流仍会失败，R2 继续保留上一次已验证的包。仓库里的 `XRAY_VERSION` 作为 CI 基线和上游 API 不可用时的回退版本。

@@ -17,7 +17,9 @@ on:
       - "XRAY_VERSION"
       - "SHA256SUMS"
       - "lib/**"
+      - "scripts/select-geodata-release.sh"
       - "scripts/select-xray-release.sh"
+      - "tests/geodata-release-delay.sh"
       - "tests/smoke-configs.sh"
       - ".github/workflows/publish-r2.yml"
 
@@ -77,6 +79,8 @@ jobs:
           bash -n offline-install.sh
           bash -n cloudflare-install.sh
           bash -n lib/xray-manager-core.sh
+          bash -n scripts/select-geodata-release.sh
+          bash tests/geodata-release-delay.sh
 
           sha256sum -c SHA256SUMS
 
@@ -133,43 +137,54 @@ jobs:
         run: |
           set -Eeuo pipefail
 
+          curl -fsSL \
+            --retry 5 \
+            --retry-all-errors \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases?per_page=100" \
+            -o downloads/geodata-releases.json
+
+          GEODATA_RELEASE_JSON="$(bash scripts/select-geodata-release.sh \
+            downloads/geodata-releases.json \
+            "$GEODATA_RELEASE_DELAY_DAYS")"
+          GEODATA_TAG="$(jq -r '.tag_name' <<<"$GEODATA_RELEASE_JSON")"
+          GEODATA_PUBLISHED_AT="$(jq -r '.published_at' <<<"$GEODATA_RELEASE_JSON")"
+          echo "R2 将打包发布已满 ${GEODATA_RELEASE_DELAY_DAYS} 天的 GeoData：${GEODATA_TAG} (${GEODATA_PUBLISHED_AT})"
+
           download_geodata() {
-            local name="$1" expected actual attempt commit_sha cutoff
-            cutoff="$(date -u -d "$GEODATA_RELEASE_DELAY_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)"
-            commit_sha="$(
-              curl -fsSL \
-                --retry 5 \
-                --retry-all-errors \
-                -H "Authorization: Bearer $GH_TOKEN" \
-                -H "Accept: application/vnd.github+json" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
-                "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/commits?sha=release&path=${name}.dat&until=${cutoff}&per_page=1" |
-                jq -r '.[0].sha // empty'
-            )"
-            [[ "$commit_sha" =~ ^[[:xdigit:]]{40}$ ]] || {
-              echo "::error::Cannot resolve a mature ${name}.dat commit" >&2
-              return 1
-            }
+            local name="$1" expected actual attempt data_url checksum_url
+            data_url="$(jq -r --arg asset "${name}.dat" '
+              .assets[] | select(.name == $asset) | .browser_download_url
+            ' <<<"$GEODATA_RELEASE_JSON")"
+            checksum_url="$(jq -r --arg asset "${name}.dat.sha256sum" '
+              .assets[] | select(.name == $asset) | .browser_download_url
+            ' <<<"$GEODATA_RELEASE_JSON")"
+            [[ "$data_url" == https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/* ]]
+            [[ "$checksum_url" == https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/* ]]
 
             for attempt in 1 2 3; do
-              curl -fsSL \
+              curl -fL \
                 --retry 5 \
                 --retry-all-errors \
-                "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/${commit_sha}/${name}.dat.sha256sum" \
+                --connect-timeout 20 \
+                "$checksum_url" \
                 -o "downloads/${name}.dat.sha256sum"
-              curl -fsSL \
+              curl -fL \
                 --retry 5 \
                 --retry-all-errors \
-                "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/${commit_sha}/${name}.dat" \
+                --connect-timeout 20 \
+                "$data_url" \
                 -o "downloads/${name}.dat"
 
               expected="$(awk '{print $1; exit}' "downloads/${name}.dat.sha256sum")"
               actual="$(sha256sum "downloads/${name}.dat" | awk '{print $1}')"
               if [[ "$expected" =~ ^[[:xdigit:]]{64}$ && "$expected" == "$actual" ]]; then
-                echo "Verified ${name}.dat from mature commit ${commit_sha}: $actual"
+                echo "Verified ${name}.dat from mature release ${GEODATA_TAG}: $actual"
                 return 0
               fi
-              echo "GeoData changed during download; retry $attempt/3" >&2
+              echo "GeoData checksum mismatch; retry $attempt/3" >&2
               sleep 5
             done
             echo "::error::Unable to obtain a matching ${name}.dat checksum" >&2

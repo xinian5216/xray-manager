@@ -23,6 +23,7 @@ jobs:
           bash -n offline-install.sh
           bash -n cloudflare-install.sh
           bash -n scripts/refresh-checksums.sh
+          bash -n scripts/select-geodata-release.sh
           bash -n scripts/select-xray-release.sh
           bash -n scripts/maintainer-map.sh
           bash -n tests/maintainer-map.sh
@@ -32,6 +33,7 @@ jobs:
           bash -n tests/cloudflare-core-download.sh
           bash -n tests/config-migration.sh
           bash -n tests/manager-menu-update.sh
+          bash -n tests/geodata-release-delay.sh
           bash -n tests/xray-release-delay.sh
       - name: Verify project version
         run: |
@@ -46,7 +48,7 @@ jobs:
       - name: Install ShellCheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: ShellCheck launchers
-        run: shellcheck -S warning xray-manager.sh install.sh offline-install.sh cloudflare-install.sh scripts/refresh-checksums.sh scripts/select-xray-release.sh
+        run: shellcheck -S warning xray-manager.sh install.sh offline-install.sh cloudflare-install.sh scripts/refresh-checksums.sh scripts/select-geodata-release.sh scripts/select-xray-release.sh
       - name: ShellCheck core
         run: |
           shellcheck -S warning scripts/maintainer-map.sh tests/maintainer-map.sh
@@ -58,6 +60,7 @@ jobs:
           shellcheck -e SC2034 -S warning tests/cloudflare-core-download.sh
           shellcheck -e SC2034 -S warning tests/config-migration.sh
           shellcheck -e SC2034 -S warning tests/manager-menu-update.sh
+          shellcheck -S warning tests/geodata-release-delay.sh
           shellcheck -S warning tests/xray-release-delay.sh
       - name: Offline import test
         run: bash tests/offline-install.sh
@@ -71,6 +74,8 @@ jobs:
         run: bash tests/manager-menu-update.sh
       - name: Xray release delay policy test
         run: bash tests/xray-release-delay.sh
+      - name: GeoData release delay policy test
+        run: bash tests/geodata-release-delay.sh
       - name: Xray configuration smoke tests
         run: |
           XRAY_VERSION="$(tr -d '[:space:]' < XRAY_VERSION)"
