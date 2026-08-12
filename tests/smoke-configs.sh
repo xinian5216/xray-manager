@@ -71,6 +71,46 @@ test_vless_reality() {
   assert_config
 }
 
+test_inbound_edit_users_and_links() {
+  local file fixed_uuid
+  reset_case inbound-edit-users-links
+  XRAY_MANAGER_SKIP_TARGET_PROBE=1 \
+    add_vless <<< $'managed-vless\n2443\n\n11111111-1111-4111-8111-111111111111\n\n\nexample.com\n\n\n\ny' >/dev/null
+  file="$CONF_DIR/10_inbound_managed-vless.json"
+  fixed_uuid="22222222-2222-4222-8222-222222222222"
+
+  (
+    confirm() { return 0; }
+    add_inbound_user <<< $'managed-vless\nphone@example.com\n22222222-2222-4222-8222-222222222222\n\n' >/dev/null
+  )
+  jq -e --arg id "$fixed_uuid" '
+    (.inbounds[0].settings.users | length) == 2 and
+    .inbounds[0].settings.users[1].id == $id and
+    .inbounds[0].settings.users[1].email == "phone@example.com"
+  ' "$file" >/dev/null
+
+  build_share_link "$file" 2 "2001:db8::10" "手机节点"
+  [[ "$SHARE_LINK" == "vless://${fixed_uuid}@[2001:db8::10]:2443?"* ]]
+  [[ "$SHARE_LINK" == *"encryption=none"* ]]
+  [[ "$SHARE_LINK" == *"type=tcp"* ]]
+  [[ "$SHARE_LINK" == *"security=reality"* ]]
+  [[ "$SHARE_LINK" == *"pbk="*"&sid="* ]]
+  [[ "$SHARE_LINK" == *"#%E6%89%8B%E6%9C%BA%E8%8A%82%E7%82%B9" ]]
+
+  (
+    confirm() { return 0; }
+    edit_inbound_user <<< $'managed-vless\n2\n2\nrenamed@example.com\n' >/dev/null
+  )
+  jq -e '.inbounds[0].settings.users[1].email == "renamed@example.com"' "$file" >/dev/null
+
+  (
+    confirm() { return 0; }
+    delete_inbound_user <<< $'managed-vless\n2\n' >/dev/null
+  )
+  jq -e '(.inbounds[0].settings.users | length) == 1' "$file" >/dev/null
+  assert_config
+}
+
 test_reality_target_risk_detection() {
   known_shared_cdn_name "cdn.example.cloudfront.net"
   known_shared_cdn_name "WWW.CLOUDFLARE.COM"
@@ -86,27 +126,44 @@ test_high_risk_target_can_disable_limits() {
 }
 
 test_vmess_transport() {
-  local name="$1" expected="$2" input="$3"
+  local name="$1" expected="$2" input="$3" expected_link_net payload
   reset_case "vmess-$name"
   add_vmess <<< "$input" >/dev/null
   [[ "$TRANSPORT" == "$expected" ]]
   jq -e --arg expected "$expected" \
     '.inbounds[0].streamSettings.method==$expected' \
     "$CONF_DIR/10_inbound_vmess.json" >/dev/null
+  case "$expected" in
+    raw) expected_link_net="tcp" ;;
+    websocket) expected_link_net="ws" ;;
+    mkcp) expected_link_net="kcp" ;;
+    *) expected_link_net="$expected" ;;
+  esac
+  build_share_link "$CONF_DIR/10_inbound_vmess.json" 1 "example.com" "vmess-$name"
+  payload="${SHARE_LINK#vmess://}"
+  printf '%s' "$payload" | base64 -d | jq -e --arg net "$expected_link_net" '
+    .net == $net and .add == "example.com" and .port == "8443"
+  ' >/dev/null
   assert_config
 }
 
 test_basic_inbounds() {
   reset_case shadowsocks
   add_shadowsocks <<< $'\n\n\n\n\n\n' >/dev/null
+  build_share_link "$CONF_DIR/10_inbound_ss2022.json" 0 "2001:db8::20" "ss"
+  [[ "$SHARE_LINK" == ss://*"@[2001:db8::20]:8388#ss" ]]
   assert_config
 
   reset_case socks
   add_socks <<< $'\n\n\n\n\n\ny' >/dev/null
+  build_share_link "$CONF_DIR/10_inbound_socks-local.json" 1 "127.0.0.1" "socks"
+  [[ "$SHARE_LINK" == socks5://*"@127.0.0.1:1080#socks" ]]
   assert_config
 
   reset_case http
   add_http <<< $'\n\n\n\n\n' >/dev/null
+  build_share_link "$CONF_DIR/10_inbound_http-local.json" 1 "127.0.0.1" "http"
+  [[ "$SHARE_LINK" == http://*"@127.0.0.1:8080#http" ]]
   assert_config
 
   reset_case tunnel
@@ -127,6 +184,8 @@ test_hysteria() {
     MANAGED_KEY="$TEST_ROOT/cert/key.pem"
   }
   add_hysteria2 <<< $'\n\n\n\n\n\n\n' >/dev/null
+  build_share_link "$CONF_DIR/10_inbound_hysteria2.json" 1 "example.com" "hysteria"
+  [[ "$SHARE_LINK" == hysteria2://*"@example.com:443?sni=example.com#hysteria" ]]
   assert_config
 }
 
@@ -141,6 +200,8 @@ test_trojan_tls() {
   [[ "$TRANSPORT" == "raw" ]]
   jq -e '.inbounds[0].streamSettings.security=="tls"' \
     "$CONF_DIR/10_inbound_trojan-tls.json" >/dev/null
+  build_share_link "$CONF_DIR/10_inbound_trojan-tls.json" 1 "example.com" "trojan"
+  [[ "$SHARE_LINK" == trojan://*"@example.com:443?"*"security=tls"*"#trojan" ]]
   assert_config
 }
 
@@ -247,6 +308,7 @@ test_retry_inputs
 test_reality_target_risk_detection
 test_high_risk_target_can_disable_limits
 test_vless_reality
+test_inbound_edit_users_and_links
 test_vmess_transport raw raw $'\n\n\n\n1\n2\ny'
 test_vmess_transport xhttp xhttp $'\n\n\n\n2\n\n2\ny'
 test_vmess_transport grpc grpc $'\n\n\n\n3\n\n2\ny'
