@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.5.0"
+SCRIPT_VERSION="1.6.0"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -2840,7 +2840,7 @@ show_inbound_details() {
   list_inbounds
   local tag f
   tag="$(ask_required "输入要查看的 Tag")"
-  f="$(grep -Rl --include='10_inbound_*.json' "\"tag\"[[:space:]]*:[[:space:]]*\"$tag\"" "$CONF_DIR" 2>/dev/null | head -n 1 || true)"
+  f="$(find_inbound_file "$tag" || true)"
   [[ -n "$f" ]] || { err "未找到。"; return; }
   if confirm "显示完整敏感信息（UUID、密码、REALITY 私钥等）？"; then
     warn "请勿截图、录屏或把完整输出粘贴到公开位置。"
@@ -2865,6 +2865,750 @@ show_inbound_details() {
   fi
 }
 
+find_inbound_file() {
+  local tag="$1" f
+  shopt -s nullglob
+  for f in "$CONF_DIR"/10_inbound_*.json; do
+    if jq -e --arg tag "$tag" '.inbounds[]? | select(.tag == $tag)' "$f" >/dev/null 2>&1; then
+      printf '%s' "$f"
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+preview_inbound_change() {
+  local file="$1" json="$2" before after
+  before="$(mktemp)"
+  after="$(mktemp)"
+  jq . "$file" >"$before"
+  jq . <<<"$json" >"$after"
+  echo
+  printf "${C_BOLD}配置差异（- 当前 / + 修改后）${C_RESET}\n"
+  if command -v diff >/dev/null 2>&1; then
+    diff -u --label "$(basename "$file") 当前" --label "$(basename "$file") 修改后" \
+      "$before" "$after" || true
+  else
+    warn "系统缺少 diff，改为显示修改后的完整 JSON。"
+    cat "$after"
+  fi
+  rm -f "$before" "$after"
+}
+
+write_inbound_candidate() {
+  local file="$1" json="$2" success_message="$3" old_tag new_tag
+  [[ -f "$file" && "$file" == "$CONF_DIR/"10_inbound_*.json ]] || {
+    err "目标不是由 Xray Manager 管理的入站文件。"
+    return 1
+  }
+  jq -e '
+    type == "object" and
+    (.inbounds | type == "array" and length == 1) and
+    (.inbounds[0] | type == "object")
+  ' >/dev/null <<<"$json" || {
+    err "一个受管入站文件必须只包含一个 InboundObject。"
+    return 1
+  }
+
+  old_tag="$(jq -r '.inbounds[0].tag // empty' "$file")"
+  new_tag="$(jq -r '.inbounds[0].tag // empty' <<<"$json")"
+  [[ -n "$old_tag" && "$new_tag" == "$old_tag" ]] || {
+    err "为避免路由引用和文件名失配，入站 Tag 不能在编辑器中直接修改。"
+    return 1
+  }
+
+  if cmp -s <(jq -S . "$file") <(jq -S . <<<"$json"); then
+    info "配置没有变化，无需写入或重启。"
+    return 0
+  fi
+
+  warn "以下差异可能含 UUID、密码或密钥，请勿复制到公开位置。"
+  preview_inbound_change "$file" "$json"
+  confirm "确认应用以上修改？" || {
+    warn "已取消，正式配置未改变。"
+    return 1
+  }
+  safe_write_config_file "$(basename "$file")" "$json" "$success_message"
+}
+
+edit_inbound_json() {
+  local file="$1" tag="$2" tmp editor json
+  warn "高级编辑允许修改协议与传输细节；错误字段会被完整配置测试拦截。"
+  tmp="$(mktemp --suffix=.json 2>/dev/null || mktemp)"
+  jq . "$file" >"$tmp"
+
+  editor="${VISUAL:-${EDITOR:-}}"
+  if [[ -n "$editor" ]] && command -v "$editor" >/dev/null 2>&1; then
+    "$editor" "$tmp" || { rm -f "$tmp"; return 1; }
+  elif command -v nano >/dev/null 2>&1; then
+    nano "$tmp" || { rm -f "$tmp"; return 1; }
+  elif command -v vi >/dev/null 2>&1; then
+    vi "$tmp" || { rm -f "$tmp"; return 1; }
+  else
+    warn "未找到可用终端编辑器，请粘贴修改后的完整 JSON，按 Ctrl-D 结束。"
+    cat >"$tmp"
+  fi
+
+  json="$(cat "$tmp")"
+  rm -f "$tmp"
+  jq -e . >/dev/null <<<"$json" || {
+    err "JSON 语法无效，未修改正式配置。"
+    return 1
+  }
+  write_inbound_candidate "$file" "$json" "已更新入站：$tag"
+}
+
+edit_inbound() {
+  need_xray || return
+  local tag file protocol port listen json c transport
+  list_inbounds
+  tag="$(ask_required "输入要编辑的 Tag")"
+  file="$(find_inbound_file "$tag" || true)"
+  [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
+  protocol="$(jq -r '.inbounds[0].protocol // "-"' "$file")"
+
+  echo "配置文件：$file"
+  echo "协议：$protocol"
+  echo "1) 修改监听端口"
+  echo "2) 修改监听地址"
+  echo "3) 高级：编辑完整 Inbound JSON"
+  echo "0) 取消"
+  read -r -p "请选择: " c || true
+  case "$c" in
+    1)
+      port="$(jq -r '.inbounds[0].port // empty' "$file")"
+      [[ "$port" =~ ^[0-9]+$ ]] || {
+        err "该入站没有普通数字端口，请使用高级 JSON 编辑。"
+        return 1
+      }
+      port="$(ask_port "新监听端口" "$port")"
+      if [[ "$port" == "$(jq -r '.inbounds[0].port' "$file")" ]]; then
+        info "端口没有变化。"
+        return
+      fi
+      warn_port "$port" || return
+      json="$(jq --arg tag "$tag" --argjson port "$port" '
+        .inbounds |= map(if .tag == $tag then .port = $port else . end)
+      ' "$file")"
+      if write_inbound_candidate "$file" "$json" "已更新入站端口：$tag"; then
+        transport="$(jq -r '.inbounds[0].streamSettings.method // "native"' "$file")"
+        maybe_ufw_for_transport "$port" "$transport" "$protocol"
+      fi
+      ;;
+    2)
+      listen="$(jq -r '.inbounds[0].listen // empty' "$file")"
+      listen="$(ask_default "新监听地址" "${listen:-0.0.0.0}")"
+      if [[ "$listen" == "$(jq -r '.inbounds[0].listen // empty' "$file")" ]]; then
+        info "监听地址没有变化。"
+        return
+      fi
+      if [[ "$protocol" == "socks" || "$protocol" == "http" ]] && \
+         [[ "$listen" != "127.0.0.1" && "$listen" != "::1" ]]; then
+        warn "$protocol 入站本身不加密，暴露公网会有明显风险。"
+        confirm "确认使用非本机监听地址？" || return
+      fi
+      json="$(jq --arg tag "$tag" --arg listen "$listen" '
+        .inbounds |= map(if .tag == $tag then .listen = $listen else . end)
+      ' "$file")"
+      write_inbound_candidate "$file" "$json" "已更新入站监听地址：$tag"
+      ;;
+    3) edit_inbound_json "$file" "$tag" ;;
+    0) return ;;
+    *) err "无效选择。"; return 1 ;;
+  esac
+}
+
+inbound_supports_user_management() {
+  case "$1" in
+    vless|vmess|trojan|shadowsocks|hysteria|socks|http) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+mask_credential() {
+  local value="$1" length
+  length="${#value}"
+  if (( length <= 8 )); then
+    printf '********'
+  else
+    printf '%s…%s' "${value:0:4}" "${value: -4}"
+  fi
+}
+
+list_inbound_users_file() {
+  local file="$1" reveal="${2:-0}" protocol count i email credential flow method
+  protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
+  count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
+  printf "\n%-6s %-28s %-28s %-22s\n" "INDEX" "NAME / EMAIL" "CREDENTIAL" "FLOW / METHOD"
+  printf "%-6s %-28s %-28s %-22s\n" "------" "----------------------------" "----------------------------" "----------------------"
+
+  if [[ "$protocol" == "shadowsocks" ]]; then
+    email="$(jq -r '.inbounds[0].settings.email // "default"' "$file")"
+    credential="$(jq -r '.inbounds[0].settings.password // empty' "$file")"
+    method="$(jq -r '.inbounds[0].settings.method // "-"' "$file")"
+    (( reveal == 1 )) || credential="$(mask_credential "$credential")"
+    printf "%-6s %-28s %-28s %-22s\n" "0" "$email" "$credential" "$method"
+  fi
+
+  for ((i = 0; i < count; i++)); do
+    email="$(jq -r --argjson i "$i" '
+      .inbounds[0].settings.users[$i] |
+      (.email // .user // ("user-" + (($i + 1) | tostring)))
+    ' "$file")"
+    credential="$(jq -r --argjson i "$i" '
+      .inbounds[0].settings.users[$i] |
+      (.id // .password // .auth // .pass // empty)
+    ' "$file")"
+    flow="$(jq -r --argjson i "$i" '
+      .inbounds[0].settings.users[$i] |
+      (.flow // .method // "-")
+    ' "$file")"
+    (( reveal == 1 )) || credential="$(mask_credential "$credential")"
+    printf "%-6s %-28s %-28s %-22s\n" "$((i + 1))" "$email" "$credential" "$flow"
+  done
+  echo
+}
+
+list_inbound_users() {
+  local tag file protocol reveal=0
+  list_inbounds
+  tag="$(ask_required "输入入站 Tag")"
+  file="$(find_inbound_file "$tag" || true)"
+  [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
+  protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
+  inbound_supports_user_management "$protocol" || {
+    err "$protocol 入站不支持此用户管理器，请使用高级 JSON 编辑。"
+    return 1
+  }
+  if confirm "显示完整凭据？"; then
+    reveal=1
+    warn "请勿截图、录屏或把凭据粘贴到公开位置。"
+  fi
+  echo "配置文件：$file"
+  list_inbound_users_file "$file" "$reveal"
+}
+
+generate_shadowsocks_user_secret() {
+  local method="$1" keylen
+  case "$method" in
+    2022-blake3-aes-128-gcm) keylen=16 ;;
+    2022-blake3-aes-256-gcm|2022-blake3-chacha20-poly1305) keylen=32 ;;
+    *) random_secret; return ;;
+  esac
+  openssl rand -base64 "$keylen" | tr -d '\n'
+}
+
+inbound_user_label_exists() {
+  local file="$1" label="$2" ignore_index="${3:--1}"
+  jq -e --arg label "$label" --argjson ignore "$ignore_index" '
+    (.inbounds[0].settings.users // [])
+    | to_entries[]?
+    | select(.key != $ignore)
+    | .value
+    | select((.email // .user // "") == $label)
+  ' "$file" >/dev/null 2>&1
+}
+
+add_inbound_user() {
+  need_xray || return
+  local tag file protocol count label credential flow method json username
+  list_inbounds
+  tag="$(ask_required "输入入站 Tag")"
+  file="$(find_inbound_file "$tag" || true)"
+  [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
+  protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
+  inbound_supports_user_management "$protocol" || {
+    err "$protocol 入站不支持此用户管理器。"
+    return 1
+  }
+  count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
+
+  case "$protocol" in
+    vless|vmess|trojan|hysteria|shadowsocks)
+      label="$(ask_default "用户备注/email（需唯一）" "${tag}-user$((count + 1))@xray.local")"
+      inbound_user_label_exists "$file" "$label" && {
+        err "用户备注/email 已存在：$label"
+        return 1
+      }
+      ;;
+  esac
+
+  case "$protocol" in
+    vless)
+      credential="$(ask_default "UUID" "$(generate_uuid)")"
+      flow="$(jq -r '.inbounds[0].settings.users[0].flow // .inbounds[0].settings.flow // ""' "$file")"
+      flow="$(ask_default "Flow（可留空）" "$flow")"
+      json="$(jq --arg id "$credential" --arg email "$label" --arg flow "$flow" '
+        .inbounds[0].settings.users = ((.inbounds[0].settings.users // []) +
+          [{id:$id,level:0,email:$email,flow:$flow}])
+      ' "$file")"
+      ;;
+    vmess)
+      credential="$(ask_default "UUID / ID" "$(generate_uuid)")"
+      json="$(jq --arg id "$credential" --arg email "$label" '
+        .inbounds[0].settings.users = ((.inbounds[0].settings.users // []) +
+          [{id:$id,level:0,email:$email}])
+      ' "$file")"
+      ;;
+    trojan)
+      credential="$(ask_default "Trojan 密码" "$(random_secret)")"
+      json="$(jq --arg password "$credential" --arg email "$label" '
+        .inbounds[0].settings.users = ((.inbounds[0].settings.users // []) +
+          [{password:$password,level:0,email:$email}])
+      ' "$file")"
+      ;;
+    hysteria)
+      credential="$(ask_default "Hysteria2 auth" "$(random_secret)")"
+      json="$(jq --arg auth "$credential" --arg email "$label" '
+        .inbounds[0].settings.users = ((.inbounds[0].settings.users // []) +
+          [{auth:$auth,level:0,email:$email}])
+      ' "$file")"
+      ;;
+    shadowsocks)
+      method="$(jq -r '.inbounds[0].settings.method // empty' "$file")"
+      credential="$(ask_default "用户密码/PSK" "$(generate_shadowsocks_user_secret "$method")")"
+      if [[ "$method" == 2022-* ]]; then
+        json="$(jq --arg password "$credential" --arg email "$label" '
+          .inbounds[0].settings.users = ((.inbounds[0].settings.users // []) +
+            [{password:$password,level:0,email:$email}])
+        ' "$file")"
+      else
+        json="$(jq --arg method "$method" --arg password "$credential" --arg email "$label" '
+          .inbounds[0].settings.users = ((.inbounds[0].settings.users // []) +
+            [{method:$method,password:$password,level:0,email:$email}])
+        ' "$file")"
+      fi
+      ;;
+    socks|http)
+      username="$(ask_default "用户名" "user$((count + 1))")"
+      inbound_user_label_exists "$file" "$username" && {
+        err "用户名已存在：$username"
+        return 1
+      }
+      credential="$(ask_default "密码" "$(random_secret)")"
+      json="$(jq --arg user "$username" --arg pass "$credential" '
+        .inbounds[0].settings.users = ((.inbounds[0].settings.users // []) +
+          [{user:$user,pass:$pass}]) |
+        (if .inbounds[0].protocol == "socks" then .inbounds[0].settings.auth = "password" else . end)
+      ' "$file")"
+      label="$username"
+      ;;
+  esac
+
+  write_inbound_candidate "$file" "$json" "已向入站 $tag 添加用户：$label"
+}
+
+edit_inbound_user() {
+  need_xray || return
+  local tag file protocol count index array_index c current value json
+  list_inbounds
+  tag="$(ask_required "输入入站 Tag")"
+  file="$(find_inbound_file "$tag" || true)"
+  [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
+  protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
+  inbound_supports_user_management "$protocol" || { err "$protocol 不支持此用户管理器。"; return 1; }
+  count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
+  list_inbound_users_file "$file" 0
+  index="$(ask_default "用户 INDEX" "1")"
+  [[ "$index" =~ ^[0-9]+$ ]] || { err "INDEX 必须是数字。"; return 1; }
+
+  if [[ "$protocol" == "shadowsocks" && "$index" == "0" ]]; then
+    echo "1) 修改默认密码/PSK"
+    echo "2) 修改默认 email"
+    read -r -p "请选择: " c || true
+    case "$c" in
+      1)
+        current="$(jq -r '.inbounds[0].settings.password' "$file")"
+        if (( count > 0 )); then
+          warn "修改 Shadowsocks 主密码会同时使全部 SS2022 多用户分享链接失效。"
+        fi
+        value="$(ask_default "新密码/PSK" "$current")"
+        json="$(jq --arg value "$value" '.inbounds[0].settings.password = $value' "$file")"
+        ;;
+      2)
+        current="$(jq -r '.inbounds[0].settings.email // "default"' "$file")"
+        value="$(ask_default "新 email" "$current")"
+        json="$(jq --arg value "$value" '.inbounds[0].settings.email = $value' "$file")"
+        ;;
+      *) err "无效选择。"; return 1 ;;
+    esac
+  else
+    (( index >= 1 && index <= count )) || { err "用户 INDEX 不存在。"; return 1; }
+    array_index=$((index - 1))
+    case "$protocol" in
+      vless)
+        echo "1) 修改 UUID  2) 修改 email  3) 修改 Flow"
+        read -r -p "请选择: " c || true
+        case "$c" in
+          1) current="$(jq -r --argjson i "$array_index" '.inbounds[0].settings.users[$i].id' "$file")";
+             value="$(ask_default "新 UUID" "$current")";
+             json="$(jq --argjson i "$array_index" --arg value "$value" '.inbounds[0].settings.users[$i].id=$value' "$file")" ;;
+          2) current="$(jq -r --argjson i "$array_index" '.inbounds[0].settings.users[$i].email // ""' "$file")";
+             value="$(ask_default "新 email" "$current")";
+             inbound_user_label_exists "$file" "$value" "$array_index" && { err "email 已存在。"; return 1; };
+             json="$(jq --argjson i "$array_index" --arg value "$value" '.inbounds[0].settings.users[$i].email=$value' "$file")" ;;
+          3) current="$(jq -r --argjson i "$array_index" '.inbounds[0].settings.users[$i].flow // ""' "$file")";
+             value="$(ask_default "新 Flow（可留空）" "$current")";
+             json="$(jq --argjson i "$array_index" --arg value "$value" '.inbounds[0].settings.users[$i].flow=$value' "$file")" ;;
+          *) err "无效选择。"; return 1 ;;
+        esac
+        ;;
+      vmess|trojan|hysteria|shadowsocks)
+        echo "1) 修改凭据  2) 修改 email"
+        read -r -p "请选择: " c || true
+        if [[ "$c" == "1" ]]; then
+          current="$(jq -r --argjson i "$array_index" '
+            .inbounds[0].settings.users[$i] | (.id // .password // .auth // empty)
+          ' "$file")"
+          value="$(ask_default "新凭据" "$current")"
+          case "$protocol" in
+            vmess) json="$(jq --argjson i "$array_index" --arg value "$value" '.inbounds[0].settings.users[$i].id=$value' "$file")" ;;
+            trojan|shadowsocks) json="$(jq --argjson i "$array_index" --arg value "$value" '.inbounds[0].settings.users[$i].password=$value' "$file")" ;;
+            hysteria) json="$(jq --argjson i "$array_index" --arg value "$value" '.inbounds[0].settings.users[$i].auth=$value' "$file")" ;;
+          esac
+        elif [[ "$c" == "2" ]]; then
+          current="$(jq -r --argjson i "$array_index" '.inbounds[0].settings.users[$i].email // ""' "$file")"
+          value="$(ask_default "新 email" "$current")"
+          inbound_user_label_exists "$file" "$value" "$array_index" && { err "email 已存在。"; return 1; }
+          json="$(jq --argjson i "$array_index" --arg value "$value" '.inbounds[0].settings.users[$i].email=$value' "$file")"
+        else
+          err "无效选择。"; return 1
+        fi
+        ;;
+      socks|http)
+        echo "1) 修改用户名  2) 修改密码"
+        read -r -p "请选择: " c || true
+        if [[ "$c" == "1" ]]; then
+          current="$(jq -r --argjson i "$array_index" '.inbounds[0].settings.users[$i].user' "$file")"
+          value="$(ask_default "新用户名" "$current")"
+          inbound_user_label_exists "$file" "$value" "$array_index" && { err "用户名已存在。"; return 1; }
+          json="$(jq --argjson i "$array_index" --arg value "$value" '.inbounds[0].settings.users[$i].user=$value' "$file")"
+        elif [[ "$c" == "2" ]]; then
+          current="$(jq -r --argjson i "$array_index" '.inbounds[0].settings.users[$i].pass' "$file")"
+          value="$(ask_default "新密码" "$current")"
+          json="$(jq --argjson i "$array_index" --arg value "$value" '.inbounds[0].settings.users[$i].pass=$value' "$file")"
+        else
+          err "无效选择。"; return 1
+        fi
+        ;;
+    esac
+  fi
+  write_inbound_candidate "$file" "$json" "已更新入站 $tag 的用户 $index"
+}
+
+delete_inbound_user() {
+  need_xray || return
+  local tag file protocol count index array_index json
+  list_inbounds
+  tag="$(ask_required "输入入站 Tag")"
+  file="$(find_inbound_file "$tag" || true)"
+  [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
+  protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
+  inbound_supports_user_management "$protocol" || { err "$protocol 不支持此用户管理器。"; return 1; }
+  count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
+  list_inbound_users_file "$file" 0
+  index="$(ask_default "要删除的用户 INDEX" "1")"
+  [[ "$index" =~ ^[0-9]+$ ]] || { err "INDEX 必须是数字。"; return 1; }
+  if [[ "$protocol" == "shadowsocks" && "$index" == "0" ]]; then
+    err "Shadowsocks 默认主密码不能删除；可以修改，或删除整个入站。"
+    return 1
+  fi
+  (( index >= 1 && index <= count )) || { err "用户 INDEX 不存在。"; return 1; }
+  if [[ "$protocol" != "shadowsocks" ]] && (( count <= 1 )); then
+    err "拒绝删除最后一个用户；请添加替代用户，或删除整个入站。"
+    return 1
+  fi
+  array_index=$((index - 1))
+  json="$(jq --argjson i "$array_index" '
+    .inbounds[0].settings.users |= del(.[$i]) |
+    if .inbounds[0].protocol == "shadowsocks" and
+       ((.inbounds[0].settings.users // []) | length) == 0
+    then del(.inbounds[0].settings.users)
+    else . end
+  ' "$file")"
+  write_inbound_candidate "$file" "$json" "已删除入站 $tag 的用户 $index"
+}
+
+inbound_user_management_menu() {
+  while true; do
+    clear || true
+    echo "========== 入站用户管理 =========="
+    echo "1) 查看用户"
+    echo "2) 添加用户"
+    echo "3) 编辑用户"
+    echo "4) 删除用户"
+    echo "0) 返回"
+    local c
+    read -r -p "请选择: " c || true
+    case "$c" in
+      1) list_inbound_users; pause ;;
+      2) add_inbound_user; pause ;;
+      3) edit_inbound_user; pause ;;
+      4) delete_inbound_user; pause ;;
+      0) return ;;
+    esac
+  done
+}
+
+urlencode() {
+  jq -rn --arg value "$1" '$value | @uri'
+}
+
+base64_urlsafe() {
+  base64 | tr -d '\n=' | tr '+/' '-_'
+}
+
+uri_host() {
+  local host="$1"
+  if [[ "$host" == *:* && "$host" != \[*\] ]]; then
+    printf '[%s]' "$host"
+  else
+    printf '%s' "$host"
+  fi
+}
+
+SHARE_QUERY=""
+query_add() {
+  local key="$1" value="$2" encoded
+  [[ -n "$value" ]] || return 0
+  encoded="$(urlencode "$value")"
+  if [[ -n "$SHARE_QUERY" ]]; then
+    SHARE_QUERY+="&"
+  fi
+  SHARE_QUERY+="${key}=${encoded}"
+}
+
+link_transport_name() {
+  case "$1" in
+    raw|'') printf 'tcp' ;;
+    websocket) printf 'ws' ;;
+    mkcp) printf 'kcp' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+reality_public_from_file() {
+  local file="$1" private out public
+  private="$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey // empty' "$file")"
+  [[ -n "$private" && -x "$XRAY_BIN" ]] || return 1
+  out="$("$XRAY_BIN" x25519 -i "$private" 2>/dev/null || true)"
+  public="$(printf '%s\n' "$out" | awk -F': *' 'tolower($1) ~ /(password|public)/ {print $2; exit}')"
+  [[ -n "$public" ]] || return 1
+  printf '%s' "$public"
+}
+
+add_stream_link_parameters() {
+  local file="$1" method type security sni alpn path host service mode mtu public sid
+  method="$(jq -r '.inbounds[0].streamSettings.method // "raw"' "$file")"
+  type="$(link_transport_name "$method")"
+  security="$(jq -r '.inbounds[0].streamSettings.security // "none"' "$file")"
+  query_add "type" "$type"
+  query_add "security" "$security"
+
+  case "$method" in
+    xhttp)
+      path="$(jq -r '.inbounds[0].streamSettings.xhttpSettings.path // empty' "$file")"
+      host="$(jq -r '.inbounds[0].streamSettings.xhttpSettings.host // empty' "$file")"
+      mode="$(jq -r '.inbounds[0].streamSettings.xhttpSettings.mode // empty' "$file")"
+      query_add "path" "$path"; query_add "host" "$host"; query_add "mode" "$mode"
+      path="$(jq -c '.inbounds[0].streamSettings.xhttpSettings.extra // empty' "$file")"
+      query_add "extra" "$path"
+      ;;
+    grpc)
+      service="$(jq -r '.inbounds[0].streamSettings.grpcSettings.serviceName // empty' "$file")"
+      mode="$(jq -r '.inbounds[0].streamSettings.grpcSettings.mode // empty' "$file")"
+      host="$(jq -r '.inbounds[0].streamSettings.grpcSettings.authority // empty' "$file")"
+      query_add "serviceName" "$service"; query_add "mode" "$mode"; query_add "authority" "$host"
+      ;;
+    websocket)
+      path="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // empty' "$file")"
+      host="$(jq -r '.inbounds[0].streamSettings.wsSettings.host // empty' "$file")"
+      query_add "path" "$path"; query_add "host" "$host"
+      ;;
+    httpupgrade)
+      path="$(jq -r '.inbounds[0].streamSettings.httpupgradeSettings.path // empty' "$file")"
+      host="$(jq -r '.inbounds[0].streamSettings.httpupgradeSettings.host // empty' "$file")"
+      query_add "path" "$path"; query_add "host" "$host"
+      ;;
+    mkcp)
+      mtu="$(jq -r '.inbounds[0].streamSettings.kcpSettings.mtu // empty' "$file")"
+      query_add "mtu" "$mtu"
+      ;;
+  esac
+
+  case "$security" in
+    tls)
+      sni="$(jq -r '.inbounds[0].streamSettings.tlsSettings.serverName // empty' "$file")"
+      alpn="$(jq -r '.inbounds[0].streamSettings.tlsSettings.alpn // [] | join(",")' "$file")"
+      query_add "sni" "$sni"; query_add "alpn" "$alpn"
+      ;;
+    reality)
+      sni="$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0] // empty' "$file")"
+      sid="$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0] // empty' "$file")"
+      public="$(reality_public_from_file "$file" || true)"
+      [[ -n "$public" ]] || {
+        err "无法由 REALITY 私钥推导客户端 pbk/password，不能生成完整链接。"
+        return 1
+      }
+      query_add "sni" "$sni"; query_add "fp" "chrome"; query_add "pbk" "$public"; query_add "sid" "$sid"
+      ;;
+  esac
+}
+
+SHARE_LINK=""
+build_share_link() {
+  local file="$1" user_index="$2" server_host="$3" remark="$4"
+  local protocol port host index id password auth flow method master user_password user_method
+  local tls sni path transport_host vmess_json username
+  protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
+  port="$(jq -r '.inbounds[0].port // empty' "$file")"
+  [[ "$port" =~ ^[0-9]+$ ]] || { err "该入站没有可分享的普通端口。"; return 1; }
+  host="$(uri_host "$server_host")"
+  [[ "$user_index" =~ ^[0-9]+$ ]] || return 1
+  index=$((user_index - 1))
+  SHARE_QUERY=""
+
+  case "$protocol" in
+    vless)
+      id="$(jq -r --argjson i "$index" '.inbounds[0].settings.users[$i].id // empty' "$file")"
+      flow="$(jq -r --argjson i "$index" '
+        .inbounds[0] as $inbound |
+        ($inbound.settings.users[$i].flow // $inbound.settings.flow // "")
+      ' "$file")"
+      [[ -n "$id" ]] || { err "用户 INDEX 不存在。"; return 1; }
+      query_add "encryption" "none"
+      query_add "flow" "$flow"
+      add_stream_link_parameters "$file" || return 1
+      SHARE_LINK="vless://$(urlencode "$id")@${host}:${port}?${SHARE_QUERY}#$(urlencode "$remark")"
+      ;;
+    vmess)
+      id="$(jq -r --argjson i "$index" '.inbounds[0].settings.users[$i].id // empty' "$file")"
+      [[ -n "$id" ]] || { err "用户 INDEX 不存在。"; return 1; }
+      method="$(jq -r '.inbounds[0].streamSettings.method // "raw"' "$file")"
+      method="$(link_transport_name "$method")"
+      tls="$(jq -r '.inbounds[0].streamSettings.security // "none"' "$file")"
+      [[ "$tls" == "none" ]] && tls=""
+      sni="$(jq -r '.inbounds[0].streamSettings.tlsSettings.serverName // empty' "$file")"
+      path="$(jq -r '
+        .inbounds[0].streamSettings |
+        (.xhttpSettings.path // .grpcSettings.serviceName // .wsSettings.path // .httpupgradeSettings.path // "")
+      ' "$file")"
+      transport_host="$(jq -r '
+        .inbounds[0].streamSettings |
+        (.xhttpSettings.host // .grpcSettings.authority // .wsSettings.host // .httpupgradeSettings.host // "")
+      ' "$file")"
+      vmess_json="$(jq -cn --arg ps "$remark" --arg add "$server_host" --arg port "$port" \
+        --arg id "$id" --arg net "$method" --arg host "$transport_host" --arg path "$path" \
+        --arg tls "$tls" --arg sni "$sni" '
+        {v:"2",ps:$ps,add:$add,port:$port,id:$id,aid:"0",scy:"auto",net:$net,
+         type:"none",host:$host,path:$path,tls:$tls,sni:$sni}
+      ')"
+      SHARE_LINK="vmess://$(printf '%s' "$vmess_json" | base64 | tr -d '\n')"
+      ;;
+    trojan)
+      password="$(jq -r --argjson i "$index" '.inbounds[0].settings.users[$i].password // empty' "$file")"
+      [[ -n "$password" ]] || { err "用户 INDEX 不存在。"; return 1; }
+      add_stream_link_parameters "$file" || return 1
+      SHARE_LINK="trojan://$(urlencode "$password")@${host}:${port}?${SHARE_QUERY}#$(urlencode "$remark")"
+      ;;
+    shadowsocks)
+      method="$(jq -r '.inbounds[0].settings.method // empty' "$file")"
+      master="$(jq -r '.inbounds[0].settings.password // empty' "$file")"
+      if (( user_index == 0 )); then
+        password="$master"
+      else
+        user_password="$(jq -r --argjson i "$index" '.inbounds[0].settings.users[$i].password // empty' "$file")"
+        [[ -n "$user_password" ]] || { err "用户 INDEX 不存在。"; return 1; }
+        user_method="$(jq -r --argjson i "$index" '.inbounds[0].settings.users[$i].method // empty' "$file")"
+        if [[ "$method" == 2022-* ]]; then
+          password="${master}:${user_password}"
+        else
+          password="$user_password"
+          method="${user_method:-$method}"
+        fi
+      fi
+      SHARE_LINK="ss://$(printf '%s' "${method}:${password}" | base64_urlsafe)@${host}:${port}#$(urlencode "$remark")"
+      ;;
+    hysteria)
+      auth="$(jq -r --argjson i "$index" '.inbounds[0].settings.users[$i].auth // empty' "$file")"
+      [[ -n "$auth" ]] || { err "用户 INDEX 不存在。"; return 1; }
+      sni="$(jq -r '.inbounds[0].streamSettings.tlsSettings.serverName // empty' "$file")"
+      query_add "sni" "$sni"
+      SHARE_LINK="hysteria2://$(urlencode "$auth")@${host}:${port}?${SHARE_QUERY}#$(urlencode "$remark")"
+      ;;
+    socks|http)
+      username="$(jq -r --argjson i "$index" '.inbounds[0].settings.users[$i].user // empty' "$file")"
+      password="$(jq -r --argjson i "$index" '.inbounds[0].settings.users[$i].pass // empty' "$file")"
+      [[ -n "$username" ]] || { err "用户 INDEX 不存在或该入站没有密码用户。"; return 1; }
+      if [[ "$protocol" == "socks" ]]; then
+        protocol="socks5"
+      fi
+      SHARE_LINK="${protocol}://$(urlencode "$username"):$(urlencode "$password")@${host}:${port}#$(urlencode "$remark")"
+      ;;
+    *)
+      err "$protocol 暂无通用分享链接标准，请查看配置并手动配置客户端。"
+      return 1
+      ;;
+  esac
+}
+
+ensure_qrencode() {
+  command -v qrencode >/dev/null 2>&1 && return 0
+  warn "终端二维码需要 qrencode。"
+  confirm "现在安装 qrencode？" || return 1
+  pkg_install_optional qrencode || return 1
+  command -v qrencode >/dev/null 2>&1
+}
+
+show_inbound_share_link() {
+  local tag file protocol count user_index listen server_host remark default_index
+  list_inbounds
+  tag="$(ask_required "输入要分享的入站 Tag")"
+  file="$(find_inbound_file "$tag" || true)"
+  [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
+  protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
+  inbound_supports_user_management "$protocol" || {
+    err "$protocol 暂无通用分享链接。"
+    return 1
+  }
+  list_inbound_users_file "$file" 0
+  count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
+  default_index=1
+  [[ "$protocol" == "shadowsocks" ]] && default_index=0
+  user_index="$(ask_default "要分享的用户 INDEX" "$default_index")"
+  [[ "$user_index" =~ ^[0-9]+$ ]] || { err "INDEX 必须是数字。"; return 1; }
+  if [[ "$protocol" == "shadowsocks" ]]; then
+    (( user_index >= 0 && user_index <= count )) || { err "用户 INDEX 不存在。"; return 1; }
+  else
+    (( user_index >= 1 && user_index <= count )) || { err "用户 INDEX 不存在。"; return 1; }
+  fi
+
+  listen="$(jq -r '.inbounds[0].listen // empty' "$file")"
+  case "$listen" in 0.0.0.0|::|'') listen="" ;; esac
+  if [[ -n "$listen" ]]; then
+    server_host="$(ask_default "客户端连接域名/IP（不加方括号）" "$listen")"
+  else
+    server_host="$(ask_required "客户端连接域名/IP（不加方括号）")"
+  fi
+  remark="$(ask_default "节点名称" "$tag")"
+
+  warn "分享链接和二维码包含完整认证凭据，任何拿到的人都可以使用该节点。"
+  confirm "确认在终端显示完整链接？" || return
+  build_share_link "$file" "$user_index" "$server_host" "$remark" || return
+  echo
+  printf "${C_BOLD}分享链接${C_RESET}\n%s\n" "$SHARE_LINK"
+  if confirm "在终端显示二维码？"; then
+    if ensure_qrencode; then
+      echo
+      qrencode -t ANSIUTF8 "$SHARE_LINK"
+    else
+      warn "未生成二维码，链接仍可复制导入。"
+    fi
+  fi
+}
+
 delete_inbound() {
   need_xray || return
   local requested="${1:-}" tag file backup tmp
@@ -2874,7 +3618,7 @@ delete_inbound() {
     list_inbounds
     tag="$(ask_required "输入要删除的 Tag")"
   fi
-  file="$(grep -Rl --include='10_inbound_*.json' "\"tag\"[[:space:]]*:[[:space:]]*\"$tag\"" "$CONF_DIR" 2>/dev/null | head -n 1 || true)"
+  file="$(find_inbound_file "$tag" || true)"
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
 
   confirm "确认删除 $tag？" || return
@@ -4172,7 +4916,11 @@ inbound_management_menu() {
     echo "1) 添加入站协议"
     echo "2) 查看入站列表"
     echo "3) 查看某入站完整配置"
-    echo "4) 删除入站"
+    echo "4) 编辑入站"
+    echo "5) 用户管理"
+    echo "6) 分享链接与二维码"
+    echo "7) 删除入站"
+    echo "配置目录：$CONF_DIR"
     echo "0) 返回"
     local c
     read -r -p "请选择: " c || true
@@ -4180,7 +4928,10 @@ inbound_management_menu() {
       1) add_inbound_menu ;;
       2) list_inbounds; pause ;;
       3) show_inbound_details; pause ;;
-      4) delete_inbound; pause ;;
+      4) edit_inbound; pause ;;
+      5) inbound_user_management_menu ;;
+      6) show_inbound_share_link; pause ;;
+      7) delete_inbound; pause ;;
       0) return ;;
     esac
   done

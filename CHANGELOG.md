@@ -2,7 +2,12 @@
 
 ## Unreleased
 
+## v1.6.0 / Core v1.6.0 - 2026-08-11
+
 ### Added
+- 入站管理新增监听端口、监听地址和完整单个 `InboundObject` JSON 编辑；修改前显示差异并保持 Tag 不变。
+- 新增 VLESS、VMess、Trojan、Shadowsocks/SS2022、Hysteria2、SOCKS5 与 HTTP 用户增删改查。
+- 新增按用户生成 VLESS、VMess、Trojan、Shadowsocks、Hysteria2、SOCKS/HTTP 分享链接及 `qrencode` 终端二维码。
 - 新增可搜索的维护导航：可从故障现象定位到实现文件、候选 Bash 函数、回归测试和关联文档。
 - 新增维护者指南与仓库级 `AGENTS.md`，记录模块边界、配置写入/迁移/路由/R2 等不可破坏的约束。
 - Validate 工作流校验维护映射引用的路径，并运行常见中文/英文查询回归测试，防止代码增长后导航失效。
@@ -10,6 +15,9 @@
 - 明确 R2 发布工作流固定覆盖五个对象键，不按日期或版本累积对象。
 
 ### Security and tests
+- 所有入站编辑和用户操作继续复用完整配置预检、自动备份、服务重启失败回滚；拒绝删除认证协议的最后一个用户。
+- 分享链接只在明确确认后显示；REALITY 仅推导客户端公钥，不把服务端私钥写进链接，并正确处理 IPv6 方括号和 URL 转义。
+- 新增用户生命周期、REALITY 分享参数、IPv6 链接和菜单入口回归测试。
 - `INSTALL_TOKEN` 只声明 Secret 名称，不提交 Secret 值；Worker 使用固定时间哈希比较并限制可读取的 R2 路径。
 - 新增 Workers 运行时测试、TypeScript 检查和 GitHub Actions Worker 校验任务。
 

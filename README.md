@@ -2,13 +2,16 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.5.0** · Core：**v1.5.0**
+> 当前项目版本：**v1.6.0** · Core：**v1.6.0**
 
 ## 核心功能
 
 - Xray-core 安装 / 修复 / 更新
 - GeoIP / GeoSite 更新
 - VLESS、VMess、Trojan、Shadowsocks、Hysteria2
+- 入站端口/监听地址编辑、完整 Inbound JSON 高级编辑
+- VLESS、VMess、Trojan、Shadowsocks、Hysteria2、SOCKS/HTTP 用户增删改查
+- VLESS、VMess、Trojan、Shadowsocks、Hysteria2、SOCKS/HTTP 分享链接与终端二维码
 - SOCKS5、HTTP Proxy、WireGuard Inbound、Tunnel、TUN
 - Freedom IPv4/IPv6、SOCKS5、HTTP、Shadowsocks、WireGuard/WARP 出站管理
 - GeoSite、GeoIP、CIDR、入站、IPv4/IPv6 与常用服务路由分流
@@ -275,6 +278,28 @@ Worker 本身不保存或打包 Xray，它只负责鉴权并读取私有 R2。R2
 ```bash
 xraym --version
 ```
+
+## 入站编辑、用户与分享
+
+主菜单选择：
+
+```text
+2) 入站管理
+```
+
+v1.6.0 在原有“添加、查看、删除”之外增加三组操作：
+
+- `4) 编辑入站`：交互修改监听端口或监听地址；高级模式用终端编辑器修改完整单个 `InboundObject`。
+- `5) 用户管理`：查看、添加、编辑和删除协议用户；拒绝删除需要认证的最后一个用户。
+- `6) 分享链接与二维码`：按用户生成导入链接，可用 `qrencode` 直接在终端显示二维码。
+
+所有受管入站仍是普通的 `conf.d/10_inbound_<tag>.json`，没有数据库或隐藏状态。修改前会显示 JSON 差异，Tag 不允许在编辑器内直接改名；确认后执行“临时目录测试完整配置 → 自动备份 → 替换 → 重启”，测试或重启失败时不保留错误配置。现有“备份 / 恢复”菜单可以直接恢复这些改动。
+
+用户管理覆盖 VLESS、VMess、Trojan、Shadowsocks（含 SS2022 多用户）、Hysteria2、密码 SOCKS5 和 HTTP Proxy。WireGuard、Tunnel、TUN 以及自定义冷门协议没有统一用户模型，应使用高级 JSON 编辑。
+
+链接生成支持 VLESS、Trojan、SIP002 Shadowsocks、Hysteria2、SOCKS/HTTP URI；VMess 生成兼容常见客户端的 Base64 JSON 链接。REALITY 链接会从服务端私钥推导客户端 `pbk/password`，不会把私钥写进链接。脚本会要求手动确认客户端连接域名/IP，避免把 `0.0.0.0`、`::` 或错误探测地址写进节点。
+
+分享链接和二维码包含完整 UUID、密码或认证值，任何拿到的人都可以使用节点。脚本只在明确确认后显示；不要截图、录屏、贴到工单或公开聊天中。`qrencode` 不存在时会先征求同意再安装，也可以跳过二维码、只复制链接。
 
 ## REALITY 回落流量保护
 

@@ -74,7 +74,30 @@ REALITY 向导会要求：
 - 导入已有证书
 - 自动通过 acme.sh 签发
 
-## 4. 查看配置
+## 4. 编辑入站、用户与分享
+
+```text
+2) 入站管理
+→ 4) 编辑入站
+→ 5) 用户管理
+→ 6) 分享链接与二维码
+```
+
+“编辑入站”可以直接修改端口和监听地址。高级 JSON 编辑会打开 `$VISUAL`、`$EDITOR`、`nano` 或 `vi`；仍只允许一个 `InboundObject`，也不允许直接修改 Tag，防止文件名和路由引用失配。
+
+“用户管理”支持：
+
+- VLESS / VMess：UUID/ID、email，VLESS 还可单独设置 Flow
+- Trojan：密码、email
+- Shadowsocks / SS2022：默认主密码和附加用户；SS2022 分享密码自动组合为 `ServerPassword:UserPassword`
+- Hysteria2：auth、email
+- SOCKS5 / HTTP：用户名、密码
+
+每次修改都会先显示 JSON 差异，再测试完整 `conf.d`，随后备份、写入和重启；测试失败不会改正式文件，重启失败会恢复旧文件。除 Shadowsocks 可退回默认主密码外，其余认证协议拒绝删除最后一个用户。
+
+“分享链接与二维码”需要输入客户端实际连接的域名或 IP。VPS 监听 `0.0.0.0` 或 `::` 时不会把通配地址误写进链接。二维码通过可选的 `qrencode` 在终端显示。链接与二维码都含完整凭据，只应在可信终端使用。
+
+## 5. 查看配置
 
 ```text
 2) 入站管理
@@ -91,13 +114,13 @@ REALITY 向导会要求：
 
 不要把输出公开。
 
-## 5. 删除入站
+## 6. 删除入站
 
 选择：
 
 ```text
 2) 入站管理
-→ 4) 删除入站
+→ 7) 删除入站
 ```
 
 脚本会：
@@ -108,7 +131,7 @@ REALITY 向导会要求：
 4. 重启 Xray
 5. 异常时尝试回滚
 
-## 6. 出站管理
+## 7. 出站管理
 
 选择：
 
@@ -135,7 +158,7 @@ REALITY 向导会要求：
 
 删除出站前会检查路由、链式出站和 `dialerProxy` 引用；仍被引用时拒绝删除。
 
-## 7. 路由与分流
+## 8. 路由与分流
 
 选择：
 
@@ -155,7 +178,7 @@ REALITY 向导会要求：
 
 如果其他 JSON 已包含 `routing`，菜单会显示冲突文件并停止，不会自动覆盖迁移来的规则。
 
-## 8. 端口转发
+## 9. 端口转发
 
 选择：
 
@@ -175,7 +198,7 @@ REALITY 向导会要求：
 
 端口转发不带认证和加密，也不保证保留客户端源 IP。公网监听应仅开放确实需要的端口。
 
-## 9. 更新 Xray Manager
+## 10. 更新 Xray Manager
 
 ```bash
 sudo xraym --self-update
@@ -183,14 +206,14 @@ sudo xraym --self-update
 
 通过 Cloudflare 安装时会继续使用 Worker + 私有 R2，并再次提示安装密钥；通过 GitHub 安装时继续使用 Fine-grained PAT。也可用 `--self-update-cloudflare` 或 `--self-update-github` 强制指定。
 
-## 10. 更新 Xray 与 GeoData
+## 11. 更新 Xray 与 GeoData
 
 ```text
 6) 更新 Xray-core
 7) 更新 GeoIP / GeoSite
 ```
 
-## 11. UFW
+## 12. UFW
 
 选择：
 
@@ -202,7 +225,7 @@ sudo xraym --self-update
 
 即使脚本会先放行当前 SSH 端口，仍建议保留 VPS 控制台作为应急方案。
 
-## 12. BBR
+## 13. BBR
 
 选择：
 
@@ -212,7 +235,7 @@ sudo xraym --self-update
 
 脚本仅在当前内核支持时启用。
 
-## 13. 日志
+## 14. 日志
 
 选择：
 
@@ -228,7 +251,7 @@ sudo xraym --self-update
 - access.log
 - Xray 版本
 
-## 14. 备份
+## 15. 备份
 
 选择：
 
