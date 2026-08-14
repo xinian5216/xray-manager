@@ -27,6 +27,7 @@ jobs:
           bash -n scripts/select-xray-release.sh
           bash -n scripts/maintainer-map.sh
           bash -n tests/maintainer-map.sh
+          bash -n tests/bootstrap-install.sh
           bash -n tests/smoke-configs.sh
           bash -n tests/offline-install.sh
           bash -n tests/cloudflare-update.sh
@@ -52,6 +53,7 @@ jobs:
       - name: ShellCheck core
         run: |
           shellcheck -S warning scripts/maintainer-map.sh tests/maintainer-map.sh
+          shellcheck -S warning tests/bootstrap-install.sh
           shellcheck -S warning lib/xray-manager-core.sh
           # The smoke test intentionally rebinds globals consumed by sourced Core functions.
           shellcheck -e SC2034 -S warning tests/smoke-configs.sh
@@ -64,6 +66,8 @@ jobs:
           shellcheck -S warning tests/xray-release-delay.sh
       - name: Offline import test
         run: bash tests/offline-install.sh
+      - name: Bootstrap dependency test
+        run: sudo bash tests/bootstrap-install.sh
       - name: Cloudflare manager update test
         run: bash tests/cloudflare-update.sh
       - name: Cloudflare Core download test

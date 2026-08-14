@@ -72,7 +72,7 @@ curl -fsSLo /tmp/xray-manager-install.sh \
 sudo bash /tmp/xray-manager-install.sh
 ```
 
-该方式不需要 VPS 访问 GitHub、XTLS 或 GeoData 下载站。引导脚本会根据 `x86_64/amd64` 或 `aarch64/arm64` 下载对应包、验证 SHA256，再进行本地离线安装。
+该方式不需要 VPS 访问 GitHub、XTLS 或 GeoData 下载站。引导脚本会根据 `x86_64/amd64` 或 `aarch64/arm64` 下载对应包、验证 SHA256，并通过系统软件源安装 `jq`、OpenSSL、`unzip`、`iproute2` 等运行依赖，再进行本地安装。
 
 通过该入口安装后，`xraym --self-update` 会记住 Cloudflare 更新来源；主菜单中的 Xray 安装/修复、Xray-core 更新和 GeoData 更新也会自动复用 Worker + R2，不再访问 GitHub/XTLS。更新时再次输入安装密钥即可，不需要代理、NAT64 或 WARP。
 
@@ -119,7 +119,7 @@ sudo bash offline-install.sh --bundle-dir /path/to/offline-bundle --run
 
 离线安装器不会调用网络下载或包管理器。它会校验仓库脚本、验证 Xray 架构和当前配置、安装 GeoData、配置 systemd / OpenRC 服务并安装 `xraym`。
 
-本机必须预先具备 `unzip`、`bsdtar` 或 Python 3 中的至少一种，否则无法读取 Xray ZIP。
+本机必须预先具备 `jq`、OpenSSL、`iproute2`、`procps`、`tar`、`gzip`、`coreutils`，以及 `unzip`、`bsdtar` 或 Python 3 中的至少一种。离线安装器发现缺失命令时会直接列出并停止，不会偷偷访问软件源。
 
 ## IPv6-only 入站监听
 

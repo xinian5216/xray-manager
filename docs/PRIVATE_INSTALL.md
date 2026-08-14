@@ -14,6 +14,8 @@ sudo bash /tmp/xray-manager-install.sh
 
 输入的是 Worker 的独立 `INSTALL_TOKEN`，不是 GitHub PAT。公开入口只返回引导脚本，AMD64 / ARM64 完整安装包保存在私有 R2，必须经过 Worker 鉴权。
 
+引导脚本会通过系统软件源一并安装 `jq`、OpenSSL、`unzip`、`iproute2` 等运行依赖；执行入口前仍需具备 `curl` 与 `tar`。
+
 通过此方式安装后，管理器会记录更新来源：
 
 ```bash
@@ -42,6 +44,8 @@ rc=$?; rm -f /tmp/xray-manager-install.sh; unset GH_TOKEN; (exit $rc)
 
 Token 不会直接出现在命令历史中，输入时也不会回显。
 
+仓库是 Private，直接访问 `raw.githubusercontent.com/.../install.sh` 或不带 Token 请求 GitHub API 会返回 `404`。如果带 Token 的命令仍返回 `404`，通常是 PAT 没有选择本仓库、权限不是 `Contents: Read-only`、Token 已失效，或指定的 ref 不存在。
+
 ## 默认安装路径
 
 ```text
@@ -64,7 +68,8 @@ sudo xraym --self-update-github
 3. SHA256 校验通过。
 4. 在本地为 Core 应用 Launcher 兼容补丁，防止 Core 覆盖 Launcher。
 5. 对 Launcher 与 Core 执行 `bash -n`。
-6. 更新本机文件。
+6. 安装/检查 `jq`、OpenSSL、`iproute2` 等运行依赖。
+7. 更新本机文件。
 
 ## GitHub 方式的 IPv6-only 注意事项
 

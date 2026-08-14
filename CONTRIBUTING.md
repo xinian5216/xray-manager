@@ -38,6 +38,7 @@ bash -n offline-install.sh
 bash -n cloudflare-install.sh
 bash -n scripts/maintainer-map.sh
 bash -n tests/maintainer-map.sh
+bash -n tests/bootstrap-install.sh
 ```
 
 推荐同时运行：

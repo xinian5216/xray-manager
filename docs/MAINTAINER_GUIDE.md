@@ -30,7 +30,7 @@ rg -n --fixed-strings '完整错误文本' .
 | 现象或需求 | 首要修改入口 | 必看测试 |
 | --- | --- | --- |
 | `xraym` 启动、自更新、版本显示异常 | `xray-manager.sh` | `tests/cloudflare-update.sh`、`tests/manager-menu-update.sh` |
-| GitHub 私有仓库首次安装失败 | `install.sh` | Launcher 更新测试、Bash/ShellCheck |
+| GitHub 私有仓库首次安装失败、依赖缺失 | `install.sh`、`cloudflare-install.sh` | `tests/bootstrap-install.sh`、Bash/ShellCheck |
 | Worker 一键安装、架构识别、校验失败 | `cloudflare-install.sh`、`offline-install.sh` | `tests/cloudflare-update.sh`、`tests/offline-install.sh` |
 | 已有 Xray 被识别、迁移或服务接管异常 | `lib/xray-manager-core.sh` 中 `discover_*`、`migrate_*`、`configure_*_service` | `tests/config-migration.sh`、`tests/offline-install.sh` |
 | IPv6-only、DNS64/NAT64、下载代理异常 | Core 中 `load_network_state` 至 `ipv6_only_menu` | `tests/cloudflare-core-download.sh` |
@@ -84,7 +84,7 @@ Core 目前保持单文件，是因为 Launcher、自更新和离线包只需原
 | --- | --- |
 | 任意 Bash 文件 | `bash -n <file>`；`shellcheck -S warning <file>` |
 | Core 配置生成 | 使用固定 Xray 执行 `tests/smoke-configs.sh` |
-| 安装或迁移 | 对应的 offline/config-migration/cloudflare 测试 |
+| 安装、依赖或迁移 | 对应的 bootstrap/offline/config-migration/cloudflare 测试 |
 | Worker | 在 `worker/` 执行 `npm ci && npm run check` |
 | 版本或发布 | `scripts/refresh-checksums.sh` 后执行完整 Validate |
 | 维护映射 | `bash scripts/maintainer-map.sh --check` |

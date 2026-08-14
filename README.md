@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.6.0** · Core：**v1.6.0**
+> 当前项目版本：**v1.6.1** · Core：**v1.6.1**
 
 ## 核心功能
 
@@ -49,14 +49,15 @@ sudo bash /tmp/xray-manager-install.sh
 | `x86_64` / `amd64` | `latest-amd64.tar.gz` |
 | `aarch64` / `arm64` | `latest-arm64.tar.gz` |
 
-VPS 需要预先具备 `curl`、`tar`，以及 `unzip`、`bsdtar`、Python 3 中至少一种 ZIP 读取工具。引导脚本会：
+VPS 只需预先具备引导所用的 `curl` 与解包所用的 `tar`；`jq`、OpenSSL、`unzip`、`iproute2` 等运行依赖由引导脚本通过系统软件源一并安装。引导脚本会：
 
 1. 通过 Cloudflare 的 IPv4 / IPv6 边缘获取公开入口。
 2. 使用 Bearer 安装密钥访问 Worker 后的私有 R2 对象。
 3. 根据 CPU 架构下载完整离线包与 SHA256。
 4. 校验压缩包，解压仓库、Xray 和 GeoData。
-5. 调用 `offline-install.sh` 完成本地安装，安装阶段不再访问其他外网。
-6. 记录 Cloudflare 更新来源，以后管理器、Xray-core 和 GeoData 更新继续使用同一通道。
+5. 通过系统软件源安装 Xray Manager 的完整运行依赖。
+6. 调用 `offline-install.sh` 完成本地安装；Xray、GeoData 与项目文件不再访问其他外网。
+7. 记录 Cloudflare 更新来源，以后管理器、Xray-core 和 GeoData 更新继续使用同一通道。
 
 通过该入口安装后，主菜单中的 `1) 安装 / 修复 Xray`、`6) 更新 Xray-core` 和 `7) 更新 GeoData` 会自动从 Worker 后的私有 R2 获取离线包，不再探测或访问 GitHub/XTLS，也不需要 NAT64、WARP 或下载代理。每次下载会安全提示输入安装密钥，密钥不会持久保存。
 
@@ -91,6 +92,8 @@ bash /tmp/xray-manager-install.sh --run; \
 rc=$?; rm -f /tmp/xray-manager-install.sh; unset GH_TOKEN; (exit $rc)
 ```
 
+仓库是 Private，直接访问 `raw.githubusercontent.com/.../install.sh` 或不带 Token 请求 API 会返回 `404`，这是 GitHub 隐藏私有仓库的正常行为。如果上面的命令也返回 `404`，请检查 PAT 是否确实选择了 `xray-manager`、仍在有效期内，并具有 `Contents: Read-only` 权限。
+
 这种方式的安装和后续 `xraym --self-update` 都需要能够访问 `api.github.com`，或者设置 `XRAY_DOWNLOAD_PROXY`。
 
 ## 纯 IPv6 VPS：其他备用方式
@@ -124,7 +127,7 @@ sudo bash offline-install.sh \
   --run
 ```
 
-该流程不会调用网络下载或包管理器。已经安装 `xraym` 时，也可在主菜单选择：
+该流程不会调用网络下载或包管理器，因此必须事先安装 `jq`、OpenSSL、`iproute2`、`procps`、`tar`、`gzip`、`coreutils`，以及 `unzip`、`bsdtar`、Python 3 中至少一种 ZIP 读取工具。已经安装 `xraym` 时，也可在主菜单选择：
 
 ```text
 14) 完全离线安装 / 导入 Xray + GeoData
