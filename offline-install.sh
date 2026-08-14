@@ -46,6 +46,18 @@ done
   exit 1
 }
 
+missing_commands=()
+for command_name in jq openssl ip ss ps tar gzip base64; do
+  command -v "$command_name" >/dev/null 2>&1 || missing_commands+=("$command_name")
+done
+if (( ${#missing_commands[@]} > 0 )); then
+  printf -v missing_list '%s, ' "${missing_commands[@]}"
+  missing_list="${missing_list%, }"
+  err "Missing runtime dependencies: $missing_list"
+  err "The fully offline installer never contacts package repositories. Install them before disconnecting, or use the GitHub/Cloudflare bootstrap."
+  exit 1
+fi
+
 for file in xray-manager.sh lib/xray-manager-core.sh offline-install.sh SHA256SUMS; do
   [[ -f "$ROOT_DIR/$file" ]] || { err "Repository file is missing: $file"; exit 1; }
 done

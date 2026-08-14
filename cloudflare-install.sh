@@ -29,8 +29,11 @@ for command_name in curl tar; do
   fi
 done
 
-read -rsp "安装密钥: " INSTALL_TOKEN </dev/tty
-echo
+INSTALL_TOKEN="${XRAY_MANAGER_INSTALL_TOKEN:-}"
+if [[ -z "$INSTALL_TOKEN" ]]; then
+  read -rsp "安装密钥: " INSTALL_TOKEN </dev/tty
+  echo
+fi
 
 if [[ -z "$INSTALL_TOKEN" ]]; then
   echo "安装密钥不能为空"
@@ -42,7 +45,7 @@ CURL_CONFIG="$WORK_DIR/curl.conf"
 
 cleanup() {
   rm -rf "$WORK_DIR"
-  unset INSTALL_TOKEN
+  unset INSTALL_TOKEN XRAY_MANAGER_INSTALL_TOKEN
 }
 trap cleanup EXIT INT TERM
 
@@ -59,7 +62,7 @@ retry = 3
 EOF
 
 chmod 600 "$CURL_CONFIG"
-unset INSTALL_TOKEN
+unset INSTALL_TOKEN XRAY_MANAGER_INSTALL_TOKEN
 
 PACKAGE="latest-${ARCH}.tar.gz"
 CHECKSUM="${PACKAGE%.tar.gz}.sha256"
@@ -94,12 +97,16 @@ mkdir -p "$WORK_DIR/extracted"
 tar -xzf "$WORK_DIR/$PACKAGE" -C "$WORK_DIR/extracted"
 
 INSTALLER="$WORK_DIR/extracted/xray-manager/offline-install.sh"
+CORE="$WORK_DIR/extracted/xray-manager/lib/xray-manager-core.sh"
 BUNDLE_DIR="$WORK_DIR/extracted/payload"
 
-if [[ ! -f "$INSTALLER" ]]; then
-  echo "离线安装包中缺少 offline-install.sh"
+if [[ ! -f "$INSTALLER" || ! -f "$CORE" ]]; then
+  echo "离线安装包中缺少 offline-install.sh 或 Core"
   exit 1
 fi
+
+echo "安装 Xray Manager 运行依赖（含 jq、OpenSSL、iproute2）……"
+bash "$CORE" --install-dependencies
 
 echo "校验通过，开始离线安装……"
 

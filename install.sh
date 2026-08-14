@@ -83,7 +83,7 @@ get_token() {
 }
 
 curl_private() {
-  local path="$1" out="$2" token="$3"
+  local path="$1" out="$2" token="$3" http_code rc
   local args=(
     -fsSL --retry 4 --connect-timeout 12 --max-time 180
     -H "Accept: application/vnd.github.raw+json"
@@ -91,11 +91,29 @@ curl_private() {
     -H "X-GitHub-Api-Version: 2022-11-28"
     "${API_BASE}/${path}?ref=${REF}"
     -o "$out"
+    -w "%{http_code}"
   )
   if [[ -n "$DOWNLOAD_PROXY" ]]; then
-    curl -x "$DOWNLOAD_PROXY" "${args[@]}"
+    if http_code="$(curl -x "$DOWNLOAD_PROXY" "${args[@]}")"; then
+      rc=0
+    else
+      rc=$?
+    fi
   else
-    curl "${args[@]}"
+    if http_code="$(curl "${args[@]}")"; then
+      rc=0
+    else
+      rc=$?
+    fi
+  fi
+
+  if (( rc != 0 )); then
+    err "GitHub API 下载失败：$path（HTTP ${http_code:-未知}）"
+    if [[ "$http_code" == "404" ]]; then
+      warn "仓库是 Private；404 通常表示 Token 无权读取该仓库、Token 已失效，或 ref 不存在。"
+      warn "请确认 Fine-grained PAT 已选择 xray-manager，并授予 Contents: Read-only。"
+    fi
+    return "$rc"
   fi
 }
 
@@ -155,6 +173,25 @@ install_pair() {
   fi
 }
 
+install_runtime_dependencies() {
+  local core="$1"
+  local -a command=(bash "$core" --install-dependencies)
+
+  if [[ -n "$DOWNLOAD_PROXY" ]]; then
+    command=(env "XRAY_DOWNLOAD_PROXY=$DOWNLOAD_PROXY" "${command[@]}")
+  fi
+
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    "${command[@]}"
+  else
+    command -v sudo >/dev/null 2>&1 || {
+      err "安装基础依赖需要 root，但系统没有 sudo。"
+      return 1
+    }
+    sudo "${command[@]}"
+  fi
+}
+
 persist_github_update_source() {
   local marker="$1"
   printf 'github\n' >"$marker"
@@ -199,6 +236,8 @@ patch_core_for_launcher "$TMP/lib/xray-manager-core.sh"
 bash -n "$TMP/xray-manager.sh"
 bash -n "$TMP/lib/xray-manager-core.sh"
 
+info "安装 Xray Manager 运行依赖（含 jq、OpenSSL、iproute2）..."
+install_runtime_dependencies "$TMP/lib/xray-manager-core.sh"
 install_pair "$TMP/xray-manager.sh" "$TMP/lib/xray-manager-core.sh"
 persist_github_update_source "$TMP/manager_update_source"
 ok "Xray Manager 项目版本 $VERSION 安装完成。"

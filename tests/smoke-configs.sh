@@ -34,8 +34,13 @@ reset_case() {
   ROUTING_FILE="$CONF_DIR/30_routing.json"
   DOWNLOAD_PROXY_FILE="$STATE_DIR/download_proxy"
   DNS64_STATE_FILE="$STATE_DIR/dns64.state"
+  XRAY_RUN_USER="$(id -un)"
   XRAY_RUN_GROUP="$(id -gn)"
   ensure_layout
+
+  [[ "$(stat -c '%a' "$LOG_DIR")" == "750" ]]
+  [[ "$(stat -c '%U:%G' "$LOG_DIR/access.log")" == "${XRAY_RUN_USER}:${XRAY_RUN_GROUP}" ]]
+  [[ "$(stat -c '%a' "$LOG_DIR/access.log")" == "600" ]]
 
   jq --arg access "$LOG_DIR/access.log" --arg error "$LOG_DIR/error.log" \
     '.log.access=$access | .log.error=$error' "$BASE_FILE" >"$BASE_FILE.tmp"
@@ -52,6 +57,23 @@ test_retry_inputs() {
   [[ "$value" == "valid" ]]
   value="$(ask_port "port" "443" <<< $'invalid\n8443')"
   [[ "$value" == "8443" ]]
+}
+
+test_shadowsocks_secret_generation() {
+  local first second decoded_length
+
+  first="$(generate_shadowsocks_secret 2022-blake3-aes-128-gcm)"
+  second="$(generate_shadowsocks_secret 2022-blake3-aes-128-gcm)"
+  [[ "$first" != "$second" ]]
+  [[ "$first" == *"==" ]]
+  decoded_length="$(printf '%s' "$first" | openssl base64 -d -A | wc -c | tr -d '[:space:]')"
+  [[ "$decoded_length" == "16" ]]
+
+  first="$(generate_shadowsocks_secret 2022-blake3-aes-256-gcm)"
+  second="$(generate_shadowsocks_secret 2022-blake3-aes-256-gcm)"
+  [[ "$first" != "$second" ]]
+  decoded_length="$(printf '%s' "$first" | openssl base64 -d -A | wc -c | tr -d '[:space:]')"
+  [[ "$decoded_length" == "32" ]]
 }
 
 test_vless_reality() {
@@ -305,6 +327,7 @@ test_routing_conflict_guard() {
 }
 
 test_retry_inputs
+test_shadowsocks_secret_generation
 test_reality_target_risk_detection
 test_high_risk_target_can_disable_limits
 test_vless_reality

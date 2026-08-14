@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.6.0"
+SCRIPT_VERSION="1.6.1"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -131,7 +131,32 @@ OS_ID="unknown"
 OS_LIKE=""
 PKG_MGR=""
 INIT_SYS=""
+XRAY_RUN_USER=""
 XRAY_RUN_GROUP=""
+
+detect_xray_run_identity() {
+  local service_user="" service_group=""
+
+  if [[ "$INIT_SYS" == "systemd" ]] && command -v systemctl >/dev/null 2>&1; then
+    service_user="$(systemctl show xray -p User --value 2>/dev/null || true)"
+    service_group="$(systemctl show xray -p Group --value 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$service_user" ]] || ! id "$service_user" >/dev/null 2>&1; then
+    if id nobody >/dev/null 2>&1; then
+      service_user="nobody"
+    else
+      service_user="root"
+    fi
+  fi
+
+  if [[ -z "$service_group" ]] || ! getent group "$service_group" >/dev/null 2>&1; then
+    service_group="$(id -gn "$service_user" 2>/dev/null || true)"
+  fi
+
+  XRAY_RUN_USER="${service_user:-root}"
+  XRAY_RUN_GROUP="${service_group:-root}"
+}
 
 detect_platform() {
   if [[ -r /etc/os-release ]]; then
@@ -165,10 +190,7 @@ detect_platform() {
     INIT_SYS="unknown"
   fi
 
-  if id nobody >/dev/null 2>&1; then
-    XRAY_RUN_GROUP="$(id -gn nobody 2>/dev/null || true)"
-  fi
-  XRAY_RUN_GROUP="${XRAY_RUN_GROUP:-root}"
+  detect_xray_run_identity
 }
 
 
@@ -591,6 +613,19 @@ pkg_install_base() {
   esac
 }
 
+ensure_runtime_dependencies() {
+  local command_name
+  local -a missing=()
+
+  for command_name in curl jq openssl unzip ip ss ps tar gzip base64; do
+    command -v "$command_name" >/dev/null 2>&1 || missing+=("$command_name")
+  done
+  (( ${#missing[@]} == 0 )) && return 0
+
+  warn "检测到缺失的运行依赖：$(printf '%s ' "${missing[@]}")"
+  pkg_install_base
+}
+
 pkg_install_optional() {
   local pkg="$1"
   case "$PKG_MGR" in
@@ -605,6 +640,9 @@ pkg_install_optional() {
 }
 
 ensure_layout() {
+  local run_user="${XRAY_RUN_USER:-root}"
+  local run_group="${XRAY_RUN_GROUP:-$(id -gn "$run_user" 2>/dev/null || printf 'root')}"
+
   mkdir -p "$CONF_DIR" "$CERT_DIR" "$ASSET_DIR" "$LOG_DIR" "$STATE_DIR" "$BACKUP_DIR"
   chown root:root "$STATE_DIR" "$BACKUP_DIR" 2>/dev/null || true
   chmod 700 "$STATE_DIR" "$BACKUP_DIR" 2>/dev/null || true
@@ -632,17 +670,13 @@ JSON
   fi
 
   touch "$LOG_DIR/access.log" "$LOG_DIR/error.log"
-
-  if id nobody >/dev/null 2>&1; then
-    chown nobody:"$XRAY_RUN_GROUP" "$LOG_DIR/access.log" "$LOG_DIR/error.log" 2>/dev/null || true
-    chmod 600 "$LOG_DIR/access.log" "$LOG_DIR/error.log" 2>/dev/null || true
-    chown root:"$XRAY_RUN_GROUP" "$XRAY_ROOT" "$CONF_DIR" "$CERT_DIR" 2>/dev/null || true
-    chmod 750 "$XRAY_ROOT" "$CONF_DIR" "$CERT_DIR" 2>/dev/null || true
-    find "$CONF_DIR" -maxdepth 1 -type f -name '*.json' -exec chown root:"$XRAY_RUN_GROUP" {} \; -exec chmod 640 {} \; 2>/dev/null || true
-  else
-    chmod 700 "$CERT_DIR" 2>/dev/null || true
-    chmod 750 "$CONF_DIR" 2>/dev/null || true
-  fi
+  chown root:"$run_group" "$LOG_DIR" 2>/dev/null || true
+  chmod 750 "$LOG_DIR" 2>/dev/null || true
+  chown "$run_user":"$run_group" "$LOG_DIR/access.log" "$LOG_DIR/error.log" 2>/dev/null || true
+  chmod 600 "$LOG_DIR/access.log" "$LOG_DIR/error.log" 2>/dev/null || true
+  chown root:"$run_group" "$XRAY_ROOT" "$CONF_DIR" "$CERT_DIR" 2>/dev/null || true
+  chmod 750 "$XRAY_ROOT" "$CONF_DIR" "$CERT_DIR" 2>/dev/null || true
+  find "$CONF_DIR" -maxdepth 1 -type f -name '*.json' -exec chown root:"$run_group" {} \; -exec chmod 640 {} \; 2>/dev/null || true
 }
 
 install_manager_command() {
@@ -1188,10 +1222,8 @@ prepare_existing_xray_config() {
 configure_systemd_offline_service() {
   local unit="/etc/systemd/system/xray.service"
   local dropin="/etc/systemd/system/xray.service.d/20-xray-manager-offline.conf"
-  local service_user="root"
-  if id nobody >/dev/null 2>&1; then
-    service_user="nobody"
-  fi
+  local service_user="${XRAY_RUN_USER:-root}"
+  local service_group="${XRAY_RUN_GROUP:-root}"
 
   if [[ ! -f "$unit" && ! -f /usr/lib/systemd/system/xray.service && ! -f /lib/systemd/system/xray.service ]]; then
     cat >"$unit" <<EOF
@@ -1202,7 +1234,7 @@ After=network.target nss-lookup.target
 
 [Service]
 User=$service_user
-Group=$XRAY_RUN_GROUP
+Group=$service_group
 Environment=XRAY_LOCATION_ASSET=$ASSET_DIR
 ExecStart=$XRAY_BIN run -confdir $CONF_DIR
 Restart=on-failure
@@ -1231,17 +1263,15 @@ EOF
 }
 
 configure_openrc_offline_service() {
-  local service_user="root"
-  if id nobody >/dev/null 2>&1; then
-    service_user="nobody"
-  fi
+  local service_user="${XRAY_RUN_USER:-root}"
+  local service_group="${XRAY_RUN_GROUP:-root}"
   if [[ ! -f /etc/init.d/xray ]]; then
     cat >/etc/init.d/xray <<EOF
 #!/sbin/openrc-run
 description="Xray Service"
 command="$XRAY_BIN"
 command_args="run -confdir $CONF_DIR"
-command_user="$service_user:$XRAY_RUN_GROUP"
+command_user="$service_user:$service_group"
 command_background="yes"
 pidfile="/run/xray.pid"
 start_stop_daemon_args="--make-pidfile"
@@ -1665,6 +1695,16 @@ warn_port() {
 
 random_secret() {
   openssl rand -base64 24 | tr -d '\n'
+}
+
+generate_shadowsocks_secret() {
+  local method="$1" keylen
+  case "$method" in
+    2022-blake3-aes-128-gcm) keylen=16 ;;
+    2022-blake3-aes-256-gcm|2022-blake3-chacha20-poly1305) keylen=32 ;;
+    *) random_secret; return ;;
+  esac
+  openssl rand -base64 "$keylen" | tr -d '\n'
 }
 
 random_hex() {
@@ -2380,10 +2420,9 @@ add_shadowsocks() {
     *) method="2022-blake3-aes-256-gcm"; keylen=32 ;;
   esac
 
+  password="$(generate_shadowsocks_secret "$method")"
   if (( keylen > 0 )); then
-    password="$(openssl rand -base64 "$keylen" | tr -d '\n')"
-  else
-    password="$(random_secret)"
+    info "已随机生成与加密方式匹配的 SS2022 PSK；末尾 = 或 == 只是 Base64 填充。"
   fi
   password="$(ask_default "密码/PSK" "$password")"
   network="$(ask_default "监听网络 tcp / udp / tcp,udp" "tcp,udp")"
@@ -3091,13 +3130,7 @@ list_inbound_users() {
 }
 
 generate_shadowsocks_user_secret() {
-  local method="$1" keylen
-  case "$method" in
-    2022-blake3-aes-128-gcm) keylen=16 ;;
-    2022-blake3-aes-256-gcm|2022-blake3-chacha20-poly1305) keylen=32 ;;
-    *) random_secret; return ;;
-  esac
-  openssl rand -base64 "$keylen" | tr -d '\n'
+  generate_shadowsocks_secret "$1"
 }
 
 inbound_user_label_exists() {
@@ -5054,8 +5087,23 @@ main_menu() {
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   require_root
-  detect_platform
-  ensure_layout
-  load_network_state
-  main_menu
+  case "${1:-}" in
+    --install-dependencies)
+      [[ $# -eq 1 ]] || die "--install-dependencies 不接受其他参数。"
+      detect_platform
+      load_network_state
+      pkg_install_base
+      ok "Xray Manager 基础依赖已安装。"
+      ;;
+    "")
+      detect_platform
+      load_network_state
+      ensure_runtime_dependencies
+      ensure_layout
+      main_menu
+      ;;
+    *)
+      die "未知参数：$1"
+      ;;
+  esac
 fi

@@ -2,9 +2,19 @@
 
 ## Unreleased
 
+## v1.6.1 / Core v1.6.1 - 2026-08-13
+
 ### Fixed
 - 修复 R2 发布工作流无法从每日重建、没有旧提交历史的上游 `release` 分支解析 7 天前 GeoData，导致 v1.4.0 后离线包持续停止更新的问题。
 - GeoData 延迟策略改为按 GitHub Releases 的 `published_at` 选择完整历史版本，并验证四个必需资产与 SHA256。
+- GitHub 与 Cloudflare 在线引导现在会通过系统软件源一并安装 `jq`、OpenSSL、`unzip`、`iproute2` 等运行依赖；完全离线入口会明确列出缺失命令。
+- 修复 `/var/log/xray` 目录仍为 `root:root` 且权限为 `750`，导致以 `nobody` 或现有 systemd 服务账号运行的 Xray 无法打开 `access.log` / `error.log` 的问题。
+- 日志与配置权限改为跟随 systemd 实际 `User` / `Group`，每次启动和写配置前都会自愈旧安装权限。
+- GitHub 下载失败现在显示目标文件与 HTTP 状态；文档明确 Private Repository 的无权限请求返回 `404`，以及 PAT 的正确授权范围。
+
+### Tests
+- SS2022 入站与新增用户统一复用密码生成器，并验证随机密钥不会重复、解码长度正确；末尾 `=` / `==` 明确标注为 Base64 填充。
+- 新增在线 bootstrap 依赖安装回归测试，并校验日志目录和文件权限。
 
 ## v1.6.0 / Core v1.6.0 - 2026-08-11
 
