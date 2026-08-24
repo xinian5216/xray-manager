@@ -4172,7 +4172,7 @@ show_inbound_routes() {
 
 inbound_detail_menu() {
   local tag file choice managed
-  tag="$(choose_inbound_tag "选择要管理的入站" "${1:-}" any)" || return 1
+  tag="$(choose_inbound_tag "选择要管理的入站" "" any)" || return 1
 
   while true; do
     file="$(find_any_inbound_file "$tag" || true)"
