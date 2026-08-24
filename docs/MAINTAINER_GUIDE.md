@@ -34,10 +34,11 @@ rg -n --fixed-strings '完整错误文本' .
 | Worker 一键安装、架构识别、校验失败 | `cloudflare-install.sh`、`offline-install.sh` | `tests/cloudflare-update.sh`、`tests/offline-install.sh` |
 | 已有 Xray 被识别、迁移或服务接管异常 | `lib/xray-manager-core.sh` 中 `discover_*`、`migrate_*`、`configure_*_service` | `tests/config-migration.sh`、`tests/offline-install.sh` |
 | IPv6-only、DNS64/NAT64、下载代理异常 | Core 中 `load_network_state` 至 `ipv6_only_menu` | `tests/cloudflare-core-download.sh` |
-| 入站、传输、REALITY、TLS 或证书问题 | Core 中 `build_*_settings`、`add_*` | `tests/smoke-configs.sh` |
+| 入站详情、编号选择、迁移节点发现、SS 用户模式或健康诊断 | Core 中 `*inbound*`、`*shadowsocks*`、`diagnose_inbound` | `tests/inbound-management.sh`、`tests/smoke-configs.sh` |
+| 入站传输、REALITY、TLS 或证书问题 | Core 中 `build_*_settings`、`add_*` | `tests/smoke-configs.sh` |
 | 出站新增、删除或引用判断错误 | Core 中 `*_outbound*` | `tests/smoke-configs.sh` |
 | 路由顺序、默认出口或冲突检测错误 | Core 中 `routing_*`、`*_route*` | `tests/smoke-configs.sh` |
-| TCP/UDP 端口转发或 UFW 放行错误 | Core 中 `*_port_forward*`、`ufw_*` | `tests/smoke-configs.sh` |
+| TCP/UDP 端口转发、UFW 放行或规则清理错误 | Core 中 `*_port_forward*`、`*ufw*` | `tests/inbound-management.sh`、`tests/smoke-configs.sh` |
 | Xray/GeoData 延迟发布策略错误 | `scripts/select-xray-release.sh`、`scripts/select-geodata-release.sh`、`publish-r2.yml` | 两个 release-delay 测试、真实配置冒烟测试 |
 | Worker 返回 401/403/404 或 R2 路径错误 | `worker/src/index.ts`、`worker/wrangler.jsonc` | `worker/test/index.spec.ts`、`npm run check` |
 | 版本、哈希或发包工作流失败 | `VERSION`、`XRAY_VERSION`、`SHA256SUMS`、两个 workflow | Validate 工作流 |

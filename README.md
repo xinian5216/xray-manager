@@ -2,13 +2,14 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.6.1** · Core：**v1.6.1**
+> 当前项目版本：**v1.7.0** · Core：**v1.7.0**
 
 ## 核心功能
 
 - Xray-core 安装 / 修复 / 更新
 - GeoIP / GeoSite 更新
 - VLESS、VMess、Trojan、Shadowsocks、Hysteria2
+- 编号选择入站、人类可读详情中心、迁移/外部入站只读发现与快捷管理
 - 入站端口/监听地址编辑、完整 Inbound JSON 高级编辑
 - VLESS、VMess、Trojan、Shadowsocks、Hysteria2、SOCKS/HTTP 用户增删改查
 - VLESS、VMess、Trojan、Shadowsocks、Hysteria2、SOCKS/HTTP 分享链接与终端二维码
@@ -20,6 +21,7 @@
 - RAW、XHTTP、gRPC、WebSocket、HTTPUpgrade、mKCP
 - REALITY / TLS / 自定义 SNI 与 target
 - REALITY 共享 CDN target 风险检测、随机化回落限速
+- 入站健康诊断：监听、服务、SS2022 密钥、NTP、关联路由、TLS 证书与 UFW
 - UFW、BBR、日志、配置测试、备份恢复
 - IPv6-only、NAT64 / DNS64、IPv6 可达下载代理
 - Cloudflare Worker + 私有 R2 的 IPv4 / IPv6 一键安装与后续自更新
@@ -282,7 +284,7 @@ Worker 本身不保存或打包 Xray，它只负责鉴权并读取私有 R2。R2
 xraym --version
 ```
 
-## 入站编辑、用户与分享
+## 入站详情、编辑、用户与分享
 
 主菜单选择：
 
@@ -290,15 +292,31 @@ xraym --version
 2) 入站管理
 ```
 
-v1.6.0 在原有“添加、查看、删除”之外增加三组操作：
+v1.7.0 的入站列表会同时显示编号、Tag、协议、监听地址/端口、传输安全、用户模式和配置来源：
 
+```text
+INDEX TAG             PROTOCOL      LISTEN      PORT TRANSPORT SECURITY USERS     SOURCE
+1     ss-home         shadowsocks   ::          8388 native    -        single/1  managed
+2     vless-phone     vless         0.0.0.0     443  raw       reality  users/2   managed
+3     old-node        shadowsocks   0.0.0.0     9443 native    -        multi/2   external
+```
+
+所有入站操作均可输入编号或 Tag。`managed` 是管理器创建的独立配置，`external` 是从已有 Xray 配置迁移过来的节点或其他 JSON 中的入站；外部入站只允许查看详情、原始配置、路由和诊断，不会被静默改写。
+
+- `3) 入站详情 / 快捷管理`：查看人类可读摘要，选择一次后直接进入用户、分享、编辑、路由、诊断和删除操作。
 - `4) 编辑入站`：交互修改监听端口或监听地址；高级模式用终端编辑器修改完整单个 `InboundObject`。
 - `5) 用户管理`：查看、添加、编辑和删除协议用户；拒绝删除需要认证的最后一个用户。
 - `6) 分享链接与二维码`：按用户生成导入链接，可用 `qrencode` 直接在终端显示二维码。
+- `8) 查看入站原始 JSON`：默认只输出当前入站的脱敏配置；查看完整私钥和密码必须再次确认。
+- `9) 入站健康诊断`：检查配置、服务、监听端口、SS2022 密钥、NTP、关联路由、TLS 证书和已启用的 UFW。
 
 所有受管入站仍是普通的 `conf.d/10_inbound_<tag>.json`，没有数据库或隐藏状态。修改前会显示 JSON 差异，Tag 不允许在编辑器内直接改名；确认后执行“临时目录测试完整配置 → 自动备份 → 替换 → 重启”，测试或重启失败时不保留错误配置。现有“备份 / 恢复”菜单可以直接恢复这些改动。
 
 用户管理覆盖 VLESS、VMess、Trojan、Shadowsocks（含 SS2022 多用户）、Hysteria2、密码 SOCKS5 和 HTTP Proxy。WireGuard、Tunnel、TUN 以及自定义冷门协议没有统一用户模型，应使用高级 JSON 编辑。
+
+Shadowsocks 默认是单用户，`INDEX 0` 对应可直接连接的顶层密码。添加第一个用户后会切换为多用户：旧单用户链接失效，实际用户从 `INDEX 1` 开始。对 SS2022，顶层密码变成服务器主 PSK，不再是独立用户，客户端密码必须是 `ServerPassword:UserPassword`。当前 Xray 只支持 `2022-blake3-aes-128-gcm` 和 `2022-blake3-aes-256-gcm` 的 SS2022 多用户；`2022-blake3-chacha20-poly1305` 保持单用户。删除最后一个附加用户会恢复单用户模式，并再次提示现有链接失效。
+
+新建的 UFW 放行规则带 `XrayManager:<tag>:<protocol>` 标识。修改端口或删除入站时只会清理这个入站由管理器创建的规则，不会碰用户手动添加的规则或旧版本的通用 `Xray` 规则。
 
 链接生成支持 VLESS、Trojan、SIP002 Shadowsocks、Hysteria2、SOCKS/HTTP URI；VMess 生成兼容常见客户端的 Base64 JSON 链接。REALITY 链接会从服务端私钥推导客户端 `pbk/password`，不会把私钥写进链接。脚本会要求手动确认客户端连接域名/IP，避免把 `0.0.0.0`、`::` 或错误探测地址写进节点。
 
@@ -417,6 +435,7 @@ Xray-core / UFW / BBR / 配置文件
 │   ├── maintainer-map.sh
 │   └── refresh-checksums.sh
 ├── tests/
+│   ├── inbound-management.sh
 │   ├── smoke-configs.sh
 │   ├── offline-install.sh
 │   └── cloudflare-update.sh
