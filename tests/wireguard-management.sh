@@ -208,7 +208,8 @@ if build_wireguard_outbound_json bad "$PRIVATE_2" '172.16.0.2/32' \
 fi
 
 backup="$(backup_now)"
-tar -tzf "$backup" | grep -Fq 'wireguard/wg-home/'
+backup_listing="$(tar -tzf "$backup")"
+grep -Fq 'wireguard/wg-home/' <<<"$backup_listing"
 rm -f "$PROFILE_1"
 backup_index="$(find "$BACKUP_DIR" -maxdepth 1 -name 'xray-config-*.tar.gz' |
   wc -l | tr -d '[:space:]')"
