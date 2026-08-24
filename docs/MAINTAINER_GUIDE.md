@@ -35,6 +35,7 @@ rg -n --fixed-strings '完整错误文本' .
 | 已有 Xray 被识别、迁移或服务接管异常 | `lib/xray-manager-core.sh` 中 `discover_*`、`migrate_*`、`configure_*_service` | `tests/config-migration.sh`、`tests/offline-install.sh` |
 | IPv6-only、DNS64/NAT64、下载代理异常 | Core 中 `load_network_state` 至 `ipv6_only_menu` | `tests/cloudflare-core-download.sh` |
 | 入站详情、编号选择、迁移节点发现、SS 用户模式或健康诊断 | Core 中 `*inbound*`、`*shadowsocks*`、`diagnose_inbound` | `tests/inbound-management.sh`、`tests/smoke-configs.sh` |
+| WireGuard 密钥、客户端 Peer、配置导出/二维码、`.conf` 导入或 WARP `Reserved` | Core 中 `*wireguard*`、`*inbound_user*`、`backup_now`、`restore_backup` | `tests/wireguard-management.sh`、`tests/smoke-configs.sh` |
 | 入站传输、REALITY、TLS 或证书问题 | Core 中 `build_*_settings`、`add_*` | `tests/smoke-configs.sh` |
 | 出站新增、删除或引用判断错误 | Core 中 `*_outbound*` | `tests/smoke-configs.sh` |
 | 路由顺序、默认出口或冲突检测错误 | Core 中 `routing_*`、`*_route*` | `tests/smoke-configs.sh` |
@@ -77,6 +78,7 @@ Core 目前保持单文件，是因为 Launcher、自更新和离线包只需原
 - 已有配置迁移继续保留双重确认、迁移前完整备份和切换前测试。
 - 不默认接管系统默认路由，不默认将无认证 SOCKS/HTTP 代理暴露公网，不因 IPv6-only 自动启用 WARP。
 - `INSTALL_TOKEN` 只能作为 Worker Secret 或本次交互输入，不能写入仓库、命令示例、日志或持久状态。
+- WireGuard 客户端私钥只能进入 root-only 的 `${STATE_DIR}/wireguard/<tag>/` 和权限为 `600` 的备份；不能打印服务端私钥，也不能为仅导入公钥的 Peer 伪造客户端私钥。
 - R2 发布继续覆盖固定对象键；不要改成按日期无限新增。
 
 ## 测试选择

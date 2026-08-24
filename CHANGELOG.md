@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## v1.8.0 / Core v1.8.0 - 2026-08-24
+
+### Added
+- WireGuard 入站支持自动生成服务端与客户端配对密钥，也可以安全导入已有客户端公钥；默认只为单个客户端分配独立的 `10.66.66.x/32` 隧道地址。
+- WireGuard Peer 纳入统一入站详情和用户管理，支持自动分配地址、客户端增删、重命名、修改地址、重复公钥与地址冲突检查。
+- 自动生成完整 WireGuard `[Interface]` / `[Peer]` 客户端配置，可在明确确认后重新查看，并通过可选 `qrencode` 导出手机扫码二维码。
+- 出站管理新增标准 WireGuard / WARP `.conf` 文件及粘贴导入，支持 `PresharedKey`、IPv4/IPv6 地址、`PersistentKeepalive`、MTU 和 WARP `Reserved`。
+- 入站诊断新增 WireGuard 服务端私钥、客户端公钥、Peer 数量、重复公钥和客户端 CIDR 检查。
+
+### Security
+- 不再直接打印 WireGuard 服务端私钥；客户端私钥与配置资料只保存在 `/etc/xray-manager/wireguard/<tag>/`，目录权限 `700`、文件权限 `600`。
+- WireGuard 客户端资料纳入已有 root-only 配置备份与恢复；删除入站或客户端时同步清理对应资料。
+- 对 WireGuard Base64 密钥、IPv4/IPv6 CIDR、Endpoint、MTU、KeepAlive、Reserved 和地址族/解析策略进行提前校验；WARP 出站不会伪造服务端公钥或默认生成未注册的账号密钥。
+
+### Tests
+- 新增独立 WireGuard 管理回归测试，覆盖自动/手动密钥、完整配置导出、IPv6、多个客户端、地址冲突、私钥隐藏、预共享密钥、标准 `.conf` 导入、root-only 权限及备份。
+- 更新真实 Xray 配置冒烟测试与 GitHub Actions，验证收紧后的 WireGuard 入站默认地址及手动出站向导。
+
 ## v1.7.0 / Core v1.7.0 - 2026-08-24
 
 ### Added

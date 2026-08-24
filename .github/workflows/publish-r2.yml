@@ -21,6 +21,7 @@ on:
       - "scripts/select-xray-release.sh"
       - "tests/geodata-release-delay.sh"
       - "tests/smoke-configs.sh"
+      - "tests/wireguard-management.sh"
       - ".github/workflows/publish-r2.yml"
 
   workflow_dispatch:
@@ -80,7 +81,9 @@ jobs:
           bash -n cloudflare-install.sh
           bash -n lib/xray-manager-core.sh
           bash -n scripts/select-geodata-release.sh
+          bash -n tests/wireguard-management.sh
           bash tests/geodata-release-delay.sh
+          bash tests/wireguard-management.sh
 
           sha256sum -c SHA256SUMS
 

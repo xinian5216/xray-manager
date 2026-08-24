@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.7.0"
+SCRIPT_VERSION="1.8.0"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -1582,11 +1582,21 @@ show_logs() {
 
 backup_now() {
   ensure_layout
-  local ts file
+  local ts file wireguard_dir
   ts="$(date +%Y%m%d-%H%M%S)"
   file="$BACKUP_DIR/xray-config-$ts.tar.gz"
-  tar -C "$XRAY_ROOT" -czf "$file" "$(basename "$CONF_DIR")" "$(basename "$CERT_DIR")" 2>/dev/null || \
-    tar -C "$XRAY_ROOT" -czf "$file" "$(basename "$CONF_DIR")"
+  wireguard_dir="${STATE_DIR}/wireguard"
+  if [[ -d "$wireguard_dir" ]]; then
+    tar -czf "$file" \
+      -C "$XRAY_ROOT" "$(basename "$CONF_DIR")" "$(basename "$CERT_DIR")" \
+      -C "$STATE_DIR" wireguard 2>/dev/null || \
+      tar -czf "$file" -C "$XRAY_ROOT" "$(basename "$CONF_DIR")" \
+        -C "$STATE_DIR" wireguard
+  else
+    tar -C "$XRAY_ROOT" -czf "$file" "$(basename "$CONF_DIR")" \
+      "$(basename "$CERT_DIR")" 2>/dev/null || \
+      tar -C "$XRAY_ROOT" -czf "$file" "$(basename "$CONF_DIR")"
+  fi
   chmod 600 "$file"
   printf '%s' "$file"
 }
@@ -2630,9 +2640,380 @@ install_wireguard_tools() {
   esac
 }
 
+validate_wireguard_key() {
+  local value="$1" decoded
+  [[ "$value" =~ ^[A-Za-z0-9+/]{43}=$ ]] || return 1
+  decoded="$(printf '%s' "$value" | base64 --decode 2>/dev/null |
+    wc -c | tr -d '[:space:]')" || return 1
+  [[ "$decoded" == "32" ]]
+}
+
+ask_wireguard_key() {
+  local prompt="$1" value
+  while true; do
+    value="$(ask_required "$prompt")"
+    if validate_wireguard_key "$value"; then
+      printf '%s' "$value"
+      return 0
+    fi
+    warn "WireGuard 密钥必须是编码后长度为 44 位的标准 Base64 32 字节密钥。"
+  done
+}
+
+validate_ipv4_address() {
+  local address="$1" part
+  local -a parts=()
+  [[ "$address" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  IFS=. read -r -a parts <<<"$address"
+  (( ${#parts[@]} == 4 )) || return 1
+  for part in "${parts[@]}"; do
+    (( ${#part} <= 3 && 10#$part <= 255 )) || return 1
+  done
+}
+
+validate_ipv6_address() {
+  local address="$1" tail part compressed=0 count=0
+  local -a parts=()
+  [[ "$address" == *:* && "$address" =~ ^[[:xdigit:]:.]+$ ]] || return 1
+  [[ "$address" != *:::* ]] || return 1
+  if [[ "$address" == *.* ]]; then
+    tail="${address##*:}"
+    validate_ipv4_address "$tail" || return 1
+    address="${address%:*}:0:0"
+  fi
+  if [[ "$address" == *::* ]]; then
+    tail="${address#*::}"
+    [[ "$tail" != *::* ]] || return 1
+    compressed=1
+  else
+    [[ "$address" != :* && "$address" != *: ]] || return 1
+  fi
+  IFS=: read -r -a parts <<<"$address"
+  for part in "${parts[@]}"; do
+    [[ -n "$part" ]] || continue
+    [[ "$part" =~ ^[[:xdigit:]]{1,4}$ ]] || return 1
+    count=$((count + 1))
+  done
+  if (( compressed )); then
+    (( count < 8 ))
+  else
+    (( count == 8 ))
+  fi
+}
+
+validate_wireguard_cidr() {
+  local value="$1" address prefix
+  [[ "$value" == */* ]] || return 1
+  address="${value%/*}"
+  prefix="${value##*/}"
+  [[ -n "$address" && "$prefix" =~ ^[0-9]{1,3}$ ]] || return 1
+  if [[ "$address" == *:* ]]; then
+    validate_ipv6_address "$address" && (( 10#$prefix <= 128 ))
+  else
+    validate_ipv4_address "$address" && (( 10#$prefix <= 32 ))
+  fi
+}
+
+validate_wireguard_cidr_list() {
+  local value="$1" item count=0
+  while IFS= read -r item; do
+    [[ -n "$item" ]] || continue
+    validate_wireguard_cidr "$item" || return 1
+    count=$((count + 1))
+  done < <(jq -r '.[]' <<<"$(csv_to_json_array "$value")")
+  (( count > 0 ))
+}
+
+ask_wireguard_cidrs() {
+  local prompt="$1" default="$2" value
+  while true; do
+    value="$(ask_default "$prompt" "$default")"
+    if validate_wireguard_cidr_list "$value"; then
+      printf '%s' "$value"
+      return 0
+    fi
+    warn "请输入有效的 IPv4/IPv6 CIDR，多个地址用逗号分隔。"
+  done
+}
+
+validate_wireguard_endpoint() {
+  local endpoint="$1" host port
+  if [[ "$endpoint" =~ ^\[([^]]+)\]:([0-9]+)$ ]]; then
+    host="${BASH_REMATCH[1]}"
+    port="${BASH_REMATCH[2]}"
+    validate_ipv6_address "$host" || return 1
+  elif [[ "$endpoint" =~ ^([^:[:space:]]+):([0-9]+)$ ]]; then
+    host="${BASH_REMATCH[1]}"
+    port="${BASH_REMATCH[2]}"
+    [[ -n "$host" ]] || return 1
+  else
+    return 1
+  fi
+  (( 10#$port >= 1 && 10#$port <= 65535 ))
+}
+
+ask_wireguard_endpoint() {
+  local prompt="$1" default="$2" value
+  while true; do
+    value="$(ask_default "$prompt" "$default")"
+    if validate_wireguard_endpoint "$value"; then
+      printf '%s' "$value"
+      return 0
+    fi
+    warn "Endpoint 必须是 域名:端口、IPv4:端口 或 [IPv6]:端口。"
+  done
+}
+
+ask_wireguard_mtu() {
+  local prompt="${1:-MTU}" default="${2:-1280}" value
+  while true; do
+    value="$(ask_default "$prompt" "$default")"
+    if [[ "$value" =~ ^[0-9]+$ ]] && (( 10#$value >= 576 && 10#$value <= 9000 )); then
+      printf '%s' "$((10#$value))"
+      return 0
+    fi
+    warn "WireGuard MTU 必须在 576-9000 之间；IPv6 建议不低于 1280。"
+  done
+}
+
+ask_wireguard_keepalive() {
+  local prompt="${1:-KeepAlive 秒数}" default="${2:-0}" value
+  while true; do
+    value="$(ask_default "$prompt" "$default")"
+    if [[ "$value" =~ ^[0-9]+$ ]] && (( 10#$value <= 65535 )); then
+      printf '%s' "$((10#$value))"
+      return 0
+    fi
+    warn "KeepAlive 必须是 0-65535 之间的整数；NAT 场景通常使用 25。"
+  done
+}
+
+wireguard_profile_directory() {
+  printf '%s/wireguard/%s' "$STATE_DIR" "$(sanitize_tag "$1")"
+}
+
+wireguard_profile_path() {
+  local tag="$1" public_key="$2" digest
+  digest="$(printf '%s' "$public_key" | openssl dgst -sha256 | awk '{print $NF}')"
+  printf '%s/%s.json' "$(wireguard_profile_directory "$tag")" "$digest"
+}
+
+wireguard_save_profile() {
+  local tag="$1" label="$2" public_key="$3" private_key="$4" addresses="$5"
+  local endpoint_host="$6" dns="$7" allowed="$8" keepalive="$9"
+  local server_public="${10}" dir file tmp
+  dir="$(wireguard_profile_directory "$tag")"
+  mkdir -p "$dir"
+  chmod 700 "${STATE_DIR}/wireguard" "$dir"
+  file="$(wireguard_profile_path "$tag" "$public_key")"
+  tmp="$(mktemp "$dir/.peer.XXXXXX")"
+  chmod 600 "$tmp"
+  jq -n \
+    --arg label "$label" --arg public "$public_key" --arg private "$private_key" \
+    --arg addresses "$addresses" --arg endpoint "$endpoint_host" --arg dns "$dns" \
+    --arg allowed "$allowed" --arg server "$server_public" \
+    --argjson keepalive "$keepalive" '
+      {
+        label:$label,publicKey:$public,privateKey:$private,address:$addresses,
+        endpointHost:$endpoint,dns:$dns,allowedIPs:$allowed,
+        keepAlive:$keepalive,serverPublicKey:$server
+      }
+    ' >"$tmp" || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$file"
+  chmod 600 "$file"
+}
+
+wireguard_peer_label() {
+  local tag="$1" public_key="$2" index="$3" profile
+  profile="$(wireguard_profile_path "$tag" "$public_key")"
+  if [[ -r "$profile" ]]; then
+    jq -r --arg fallback "peer-$index" '.label // $fallback' "$profile"
+  else
+    printf 'peer-%s' "$index"
+  fi
+}
+
+wireguard_peer_label_exists() {
+  local tag="$1" label="$2" ignore="${3:-}" profile
+  shopt -s nullglob
+  for profile in "$(wireguard_profile_directory "$tag")"/*.json; do
+    [[ "$profile" != "$ignore" ]] || continue
+    if jq -e --arg label "$label" '.label == $label' "$profile" >/dev/null 2>&1; then
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+wireguard_next_client_address() {
+  local file="$1" number candidate
+  for ((number = 2; number <= 254; number++)); do
+    candidate="10.66.66.${number}/32"
+    if ! jq -e --arg address "$candidate" '
+      .inbounds[0].settings.peers[]?.allowedIPs[]? | select(. == $address)
+    ' "$file" >/dev/null 2>&1; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  err "10.66.66.0/24 已没有可自动分配的客户端地址。"
+  return 1
+}
+
+wireguard_ipv4_integer() {
+  local address="$1" a b c d
+  IFS=. read -r a b c d <<<"$address"
+  printf '%s' "$(( (10#$a << 24) | (10#$b << 16) | (10#$c << 8) | 10#$d ))"
+}
+
+wireguard_ipv6_expanded() {
+  local address="${1,,}" left right part tail a b c d missing index output=""
+  local -a left_parts=() right_parts=() parts=()
+  if [[ "$address" == *.* ]]; then
+    tail="${address##*:}"
+    IFS=. read -r a b c d <<<"$tail"
+    address="${address%:*}:$(printf '%x:%x' \
+      "$(( (10#$a << 8) | 10#$b ))" "$(( (10#$c << 8) | 10#$d ))")"
+  fi
+  if [[ "$address" == *::* ]]; then
+    left="${address%%::*}"
+    right="${address#*::}"
+    [[ -z "$left" ]] || IFS=: read -r -a left_parts <<<"$left"
+    [[ -z "$right" ]] || IFS=: read -r -a right_parts <<<"$right"
+    missing=$((8 - ${#left_parts[@]} - ${#right_parts[@]}))
+    parts=("${left_parts[@]}")
+    for ((index = 0; index < missing; index++)); do parts+=(0); done
+    parts+=("${right_parts[@]}")
+  else
+    IFS=: read -r -a parts <<<"$address"
+  fi
+  for part in "${parts[@]}"; do
+    output="${output}$(printf '%04x' "$((16#$part))"):"
+  done
+  printf '%s' "${output%:}"
+}
+
+wireguard_ipv6_prefix_match() {
+  local first="$1" second="$2" prefix="$3" full partial index mask
+  local -a first_parts=() second_parts=()
+  IFS=: read -r -a first_parts <<<"$(wireguard_ipv6_expanded "$first")"
+  IFS=: read -r -a second_parts <<<"$(wireguard_ipv6_expanded "$second")"
+  full=$((10#$prefix / 16))
+  partial=$((10#$prefix % 16))
+  for ((index = 0; index < full; index++)); do
+    (( 16#${first_parts[index]} == 16#${second_parts[index]} )) || return 1
+  done
+  if (( partial > 0 )); then
+    mask="$(( (0xffff << (16 - partial)) & 0xffff ))"
+    (( (16#${first_parts[full]} & mask) == (16#${second_parts[full]} & mask) )) || return 1
+  fi
+}
+
+wireguard_cidrs_overlap() {
+  local first="$1" second="$2" first_address second_address first_prefix second_prefix prefix mask
+  first_address="${first%/*}"
+  second_address="${second%/*}"
+  first_prefix="${first##*/}"
+  second_prefix="${second##*/}"
+  if [[ "$first_address" == *:* || "$second_address" == *:* ]]; then
+    [[ "$first_address" == *:* && "$second_address" == *:* ]] || return 1
+    prefix="$first_prefix"
+    (( 10#$second_prefix >= 10#$prefix )) || prefix="$second_prefix"
+    wireguard_ipv6_prefix_match "$first_address" "$second_address" "$prefix"
+    return
+  fi
+  prefix="$first_prefix"
+  (( 10#$second_prefix >= 10#$prefix )) || prefix="$second_prefix"
+  if (( 10#$prefix == 0 )); then
+    return 0
+  fi
+  mask="$(( (0xffffffff << (32 - 10#$prefix)) & 0xffffffff ))"
+  (( ($(wireguard_ipv4_integer "$first_address") & mask) ==
+     ($(wireguard_ipv4_integer "$second_address") & mask) ))
+}
+
+wireguard_peer_addresses_available() {
+  local file="$1" addresses="$2" ignore="${3:--1}" proposed existing index
+  while IFS= read -r proposed; do
+    [[ -n "$proposed" ]] || continue
+    while IFS=$'\t' read -r index existing; do
+      [[ -n "$existing" ]] || continue
+      [[ "$index" != "$ignore" ]] || continue
+      if wireguard_cidrs_overlap "$proposed" "$existing"; then
+        err "客户端地址 $proposed 与已有 Peer $((index + 1)) 的 $existing 冲突。"
+        return 1
+      fi
+    done < <(jq -r '
+      (.inbounds[0].settings.peers // []) | to_entries[]? |
+      .key as $index | .value.allowedIPs[]? | [$index, .] | @tsv
+    ' "$file")
+  done < <(jq -r '.[]' <<<"$(csv_to_json_array "$addresses")")
+}
+
+wireguard_default_client_routes() {
+  local addresses="$1" value ipv4=0 ipv6=0
+  while IFS= read -r value; do
+    [[ -n "$value" ]] || continue
+    if [[ "$value" == *:* ]]; then ipv6=1; else ipv4=1; fi
+  done < <(jq -r '.[]' <<<"$(csv_to_json_array "$addresses")")
+  if (( ipv4 && ipv6 )); then
+    printf '%s' '0.0.0.0/0,::/0'
+  elif (( ipv6 )); then
+    printf '%s' '::/0'
+  else
+    printf '%s' '0.0.0.0/0'
+  fi
+}
+
+wireguard_server_public_key() {
+  local file="$1" private
+  private="$(jq -r '.inbounds[0].settings.secretKey // empty' "$file")"
+  validate_wireguard_key "$private" || return 1
+  install_wireguard_tools || return 1
+  printf '%s' "$private" | wg pubkey
+}
+
+render_wireguard_client_config() {
+  local tag="$1" index="$2" file public profile private address endpoint port server dns allowed keepalive mtu
+  file="$(find_inbound_file "$tag" || true)"
+  [[ -n "$file" && "$index" =~ ^[0-9]+$ && "$index" -ge 1 ]] || return 1
+  public="$(jq -r --argjson index "$((index - 1))" '
+    .inbounds[0].settings.peers[$index].publicKey // empty
+  ' "$file")"
+  [[ -n "$public" ]] || { err "WireGuard Peer INDEX 不存在。"; return 1; }
+  profile="$(wireguard_profile_path "$tag" "$public")"
+  [[ -r "$profile" ]] || {
+    err "该 Peer 没有保存的客户端配置；导入现有公钥时不会拥有客户端私钥。"
+    return 1
+  }
+  private="$(jq -r '.privateKey // empty' "$profile")"
+  [[ -n "$private" ]] || {
+    err "该 Peer 是通过已有客户端公钥导入的，私钥只保存在原客户端。"
+    return 1
+  }
+  address="$(jq -r '.address // empty' "$profile")"
+  endpoint="$(jq -r '.endpointHost // empty' "$profile")"
+  server="$(jq -r '.serverPublicKey // empty' "$profile")"
+  dns="$(jq -r '.dns // empty' "$profile")"
+  allowed="$(jq -r '.allowedIPs // empty' "$profile")"
+  keepalive="$(jq -r '.keepAlive // 0' "$profile")"
+  port="$(jq -r '.inbounds[0].port' "$file")"
+  mtu="$(jq -r '.inbounds[0].settings.mtu // 1420' "$file")"
+  [[ -n "$endpoint" && -n "$server" ]] || { err "客户端配置缺少服务端地址或公钥。"; return 1; }
+
+  printf '[Interface]\nPrivateKey = %s\nAddress = %s\n' "$private" "$address"
+  [[ -z "$dns" ]] || printf 'DNS = %s\n' "$dns"
+  printf 'MTU = %s\n\n[Peer]\nPublicKey = %s\nEndpoint = %s:%s\nAllowedIPs = %s\n' \
+    "$mtu" "$server" "$(uri_host "$endpoint")" "$port" "$allowed"
+  (( keepalive == 0 )) || printf 'PersistentKeepalive = %s\n' "$keepalive"
+}
+
 add_wireguard() {
   need_xray || return
-  local tag port listen server_priv server_pub client_pub allowed mtu json
+  local tag port listen server_priv server_pub client_priv client_pub allowed mtu json
+  local mode label endpoint_host dns routes keepalive profile
   TRANSPORT="wireguard"
   TRANSPORT_PATH=""; TRANSPORT_HOST=""; GRPC_SERVICE=""
   REALITY_PUBLIC=""; REALITY_SNI=""; REALITY_TARGET=""; REALITY_SHORTID=""
@@ -2650,14 +3031,37 @@ add_wireguard() {
 
   server_priv="$(wg genkey)"
   server_pub="$(printf '%s' "$server_priv" | wg pubkey)"
-  client_pub="$(ask_required "客户端 WireGuard PublicKey")"
-  allowed="$(ask_default "允许的客户端源网段 allowedIPs" "0.0.0.0/0,::/0")"
-  mtu="$(ask_default "MTU" "1420")"
-  [[ "$mtu" =~ ^[0-9]+$ ]] || mtu=1420
+  mode="$(ask_default "客户端密钥：1 自动生成 / 2 导入已有客户端 PublicKey" "1")"
+  label="$(ask_default "客户端名称" "${tag}-client1")"
+  allowed="$(ask_wireguard_cidrs "客户端隧道地址/CIDR" "10.66.66.2/32")"
+  mtu="$(ask_wireguard_mtu "MTU" "1420")"
+  client_priv=""
+  endpoint_host=""
+  dns=""
+  routes="$(wireguard_default_client_routes "$allowed")"
+  keepalive=0
+  case "$mode" in
+    1)
+      client_priv="$(wg genkey)"
+      client_pub="$(printf '%s' "$client_priv" | wg pubkey)"
+      case "$listen" in
+        0.0.0.0|::|'') endpoint_host="$(ask_required "客户端连接的服务器域名/IP")" ;;
+        *) endpoint_host="$(ask_default "客户端连接的服务器域名/IP" "$listen")" ;;
+      esac
+      dns="$(ask_default "客户端 DNS（留空不写入）" "1.1.1.1")"
+      routes="$(ask_wireguard_cidrs "客户端代理网段 AllowedIPs" "$routes")"
+      keepalive="$(ask_wireguard_keepalive "PersistentKeepalive 秒数（NAT 推荐 25）" "25")"
+      ;;
+    2)
+      client_pub="$(ask_wireguard_key "已有客户端 WireGuard PublicKey")"
+      ;;
+    *) err "无效的客户端密钥模式。"; return 1 ;;
+  esac
 
   json="$(jq -cn \
     --arg tag "$tag" --arg listen "$listen" --argjson port "$port" \
-    --arg priv "$server_priv" --arg pub "$client_pub" --arg allowed "$allowed" --argjson mtu "$mtu" '
+    --arg priv "$server_priv" --arg pub "$client_pub" \
+    --argjson allowed "$(csv_to_json_array "$allowed")" --argjson mtu "$mtu" '
     {
       inbounds:[
         {
@@ -2667,7 +3071,7 @@ add_wireguard() {
           protocol:"wireguard",
           settings:{
             secretKey:$priv,
-            peers:[{publicKey:$pub,allowedIPs:($allowed|split(","))}],
+            peers:[{publicKey:$pub,allowedIPs:$allowed}],
             mtu:$mtu
           }
         }
@@ -2675,11 +3079,23 @@ add_wireguard() {
     }')"
 
   safe_write_inbound "$tag" "$json" || return
+  if ! wireguard_save_profile "$tag" "$label" "$client_pub" "$client_priv" "$allowed" \
+       "$endpoint_host" "$dns" "$routes" "$keepalive" "$server_pub"; then
+    warn "入站已创建，但客户端配置保存失败；请安全保存客户端私钥。"
+  fi
   maybe_ufw_for_transport "$port" "wireguard" "wireguard" "$tag"
   show_created_summary "$tag" "wireguard" "$listen" "$port" ""
-  printf "  Server PrivateKey: %s\n" "$server_priv"
-  printf "  Server PublicKey : %s\n\n" "$server_pub"
-  warn "客户端还需要完整 WireGuard 地址/路由设计；本项只生成 Xray 入站。"
+  printf '  Server PublicKey : %s\n' "$server_pub"
+  printf '  Client PublicKey : %s\n' "$client_pub"
+  printf '  Client Address   : %s\n' "$allowed"
+  if [[ -n "$client_priv" ]]; then
+    profile="$(wireguard_profile_path "$tag" "$client_pub")"
+    printf '  Client Profile   : %s（仅 root 可读）\n\n' "$profile"
+    info "请在入站详情 → 分享配置与二维码中查看完整 WireGuard 客户端配置。"
+  else
+    echo
+    info "已登记现有客户端公钥；客户端私钥仍只保存在原设备。"
+  fi
 }
 
 add_tunnel() {
@@ -2900,6 +3316,8 @@ inbound_inventory_rows() {
           if .protocol == "shadowsocks" then
             if ($users | length) == 0 then "single/1"
             else "multi/" + (($users | length) | tostring) end
+          elif .protocol == "wireguard" then
+            "peers/" + (((.settings.peers // []) | length) | tostring)
           elif .protocol == "socks" and (.settings.auth // "") == "noauth" then
             "noauth"
           elif ($users | length) > 0 then
@@ -3074,7 +3492,11 @@ show_inbound_summary_file() {
   printf '  传输安全    : %s\n' "$security"
   [[ -z "$method" ]] || printf '  加密方式    : %s\n' "$method"
 
-  if [[ "$protocol" == "shadowsocks" ]]; then
+  if [[ "$protocol" == "wireguard" ]]; then
+    count="$(jq -r '(.settings.peers // []) | length' <<<"$inbound")"
+    printf '  客户端数量  : %s\n' "$count"
+    printf '  MTU         : %s\n' "$(jq -r '.settings.mtu // 1420' <<<"$inbound")"
+  elif [[ "$protocol" == "shadowsocks" ]]; then
     credential="$(jq -r '.settings.password // ""' <<<"$inbound")"
     if (( count == 0 )); then
       printf '  用户模式    : 单用户\n'
@@ -3324,7 +3746,7 @@ edit_inbound() {
 
 inbound_supports_user_management() {
   case "$1" in
-    vless|vmess|trojan|shadowsocks|hysteria|socks|http) return 0 ;;
+    vless|vmess|trojan|shadowsocks|hysteria|socks|http|wireguard) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -3341,7 +3763,35 @@ mask_credential() {
 
 list_inbound_users_file() {
   local file="$1" reveal="${2:-0}" protocol count i email credential flow method
+  local tag profile addresses
   protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
+  if [[ "$protocol" == "wireguard" ]]; then
+    tag="$(jq -r '.inbounds[0].tag' "$file")"
+    count="$(jq -r '(.inbounds[0].settings.peers // []) | length' "$file")"
+    printf '\n%-6s %-24s %-34s %-28s %-12s\n' \
+      "INDEX" "NAME" "CLIENT PUBLIC KEY" "CLIENT ADDRESS" "PROFILE"
+    printf '%-6s %-24s %-34s %-28s %-12s\n' \
+      "------" "------------------------" "----------------------------------" \
+      "----------------------------" "------------"
+    for ((i = 0; i < count; i++)); do
+      credential="$(jq -r --argjson i "$i" '.inbounds[0].settings.peers[$i].publicKey' "$file")"
+      addresses="$(jq -r --argjson i "$i" '
+        .inbounds[0].settings.peers[$i].allowedIPs | join(",")
+      ' "$file")"
+      email="$(wireguard_peer_label "$tag" "$credential" "$((i + 1))")"
+      profile="$(wireguard_profile_path "$tag" "$credential")"
+      if [[ -r "$profile" ]] && jq -e '.privateKey | length > 0' "$profile" >/dev/null 2>&1; then
+        flow="可导出"
+      else
+        flow="仅公钥"
+      fi
+      (( reveal == 1 )) || credential="$(mask_credential "$credential")"
+      printf '%-6s %-24s %-34s %-28s %-12s\n' \
+        "$((i + 1))" "$email" "$credential" "$addresses" "$flow"
+    done
+    echo
+    return 0
+  fi
   count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
 
   if [[ "$protocol" == "shadowsocks" ]] && (( count > 0 )); then
@@ -3419,6 +3869,157 @@ inbound_user_label_exists() {
   ' "$file" >/dev/null 2>&1
 }
 
+add_wireguard_peer() {
+  local tag="$1" file="$2" count mode label addresses private public endpoint dns routes
+  local keepalive server_public json listen
+  count="$(jq -r '(.inbounds[0].settings.peers // []) | length' "$file")"
+  mode="$(ask_default "客户端密钥：1 自动生成 / 2 导入已有客户端 PublicKey" "1")"
+  label="$(ask_default "客户端名称" "${tag}-client$((count + 1))")"
+  if wireguard_peer_label_exists "$tag" "$label"; then
+    err "WireGuard 客户端名称已存在：$label"
+    return 1
+  fi
+  addresses="$(ask_wireguard_cidrs "客户端隧道地址/CIDR" \
+    "$(wireguard_next_client_address "$file")")" || return 1
+  wireguard_peer_addresses_available "$file" "$addresses" || return 1
+  private=""
+  endpoint=""
+  dns=""
+  routes="$(wireguard_default_client_routes "$addresses")"
+  keepalive=0
+  server_public="$(wireguard_server_public_key "$file")" || {
+    err "无法根据服务端私钥推导 WireGuard 服务端公钥。"
+    return 1
+  }
+  case "$mode" in
+    1)
+      private="$(wg genkey)"
+      public="$(printf '%s' "$private" | wg pubkey)"
+      listen="$(jq -r '.inbounds[0].listen // empty' "$file")"
+      case "$listen" in
+        0.0.0.0|::|'') endpoint="$(ask_required "客户端连接的服务器域名/IP")" ;;
+        *) endpoint="$(ask_default "客户端连接的服务器域名/IP" "$listen")" ;;
+      esac
+      dns="$(ask_default "客户端 DNS（留空不写入）" "1.1.1.1")"
+      routes="$(ask_wireguard_cidrs "客户端代理网段 AllowedIPs" "$routes")"
+      keepalive="$(ask_wireguard_keepalive "PersistentKeepalive 秒数（NAT 推荐 25）" "25")"
+      ;;
+    2) public="$(ask_wireguard_key "已有客户端 WireGuard PublicKey")" ;;
+    *) err "无效的客户端密钥模式。"; return 1 ;;
+  esac
+  if jq -e --arg public "$public" '
+    .inbounds[0].settings.peers[]? | select(.publicKey == $public)
+  ' "$file" >/dev/null 2>&1; then
+    err "WireGuard 客户端公钥已存在。"
+    return 1
+  fi
+  json="$(jq --arg public "$public" --argjson addresses "$(csv_to_json_array "$addresses")" '
+    .inbounds[0].settings.peers = ((.inbounds[0].settings.peers // []) +
+      [{publicKey:$public,allowedIPs:$addresses}])
+  ' "$file")"
+  write_inbound_candidate "$file" "$json" "已向 WireGuard 入站 $tag 添加客户端：$label" || return 1
+  wireguard_save_profile "$tag" "$label" "$public" "$private" "$addresses" \
+    "$endpoint" "$dns" "$routes" "$keepalive" "$server_public" || {
+    warn "Peer 已添加，但 root-only 客户端配置保存失败。"
+    return 1
+  }
+  [[ -z "$private" ]] || info "客户端配置已保存；可在“分享配置与二维码”中按 INDEX 导出。"
+}
+
+edit_wireguard_peer() {
+  local tag="$1" file="$2" count index array_index choice public profile label value json tmp
+  count="$(jq -r '(.inbounds[0].settings.peers // []) | length' "$file")"
+  list_inbound_users_file "$file" 0
+  index="$(ask_default "客户端 INDEX" "1")"
+  [[ "$index" =~ ^[0-9]+$ ]] && (( 10#$index >= 1 && 10#$index <= count )) || {
+    err "WireGuard 客户端 INDEX 不存在。"
+    return 1
+  }
+  array_index=$((10#$index - 1))
+  public="$(jq -r --argjson index "$array_index" '
+    .inbounds[0].settings.peers[$index].publicKey
+  ' "$file")"
+  profile="$(wireguard_profile_path "$tag" "$public")"
+  echo "1) 修改客户端名称"
+  echo "2) 修改客户端隧道地址/CIDR"
+  read -r -p "请选择: " choice || true
+  case "$choice" in
+    1)
+      label="$(wireguard_peer_label "$tag" "$public" "$index")"
+      value="$(ask_default "新客户端名称" "$label")"
+      if wireguard_peer_label_exists "$tag" "$value" "$profile"; then
+        err "WireGuard 客户端名称已存在：$value"
+        return 1
+      fi
+      if [[ ! -r "$profile" ]]; then
+        wireguard_save_profile "$tag" "$value" "$public" "" \
+          "$(jq -r --argjson i "$array_index" '
+            .inbounds[0].settings.peers[$i].allowedIPs | join(",")
+          ' "$file")" "" "" "0.0.0.0/0" 0 "" || return 1
+      else
+        tmp="$(mktemp "$(wireguard_profile_directory "$tag")/.peer.XXXXXX")"
+        chmod 600 "$tmp"
+        jq --arg label "$value" '.label = $label' "$profile" >"$tmp" || {
+          rm -f "$tmp"
+          return 1
+        }
+        mv "$tmp" "$profile"
+        chmod 600 "$profile"
+      fi
+      ok "已更新 WireGuard 客户端名称：$value"
+      ;;
+    2)
+      value="$(jq -r --argjson i "$array_index" '
+        .inbounds[0].settings.peers[$i].allowedIPs | join(",")
+      ' "$file")"
+      value="$(ask_wireguard_cidrs "新客户端隧道地址/CIDR" "$value")"
+      wireguard_peer_addresses_available "$file" "$value" "$array_index" || return 1
+      json="$(jq --argjson i "$array_index" --argjson addresses "$(csv_to_json_array "$value")" '
+        .inbounds[0].settings.peers[$i].allowedIPs = $addresses
+      ' "$file")"
+      write_inbound_candidate "$file" "$json" \
+        "已更新 WireGuard 入站 $tag 的客户端 $index 地址" || return 1
+      if [[ -r "$profile" ]]; then
+        tmp="$(mktemp "$(wireguard_profile_directory "$tag")/.peer.XXXXXX")"
+        chmod 600 "$tmp"
+        jq --arg address "$value" '.address = $address' "$profile" >"$tmp" || {
+          rm -f "$tmp"
+          return 1
+        }
+        mv "$tmp" "$profile"
+        chmod 600 "$profile"
+      fi
+      ;;
+    *) err "无效选择。"; return 1 ;;
+  esac
+}
+
+delete_wireguard_peer() {
+  local tag="$1" file="$2" count index array_index public profile json
+  count="$(jq -r '(.inbounds[0].settings.peers // []) | length' "$file")"
+  (( count > 1 )) || {
+    err "拒绝删除最后一个 WireGuard 客户端；请先添加替代客户端或删除整个入站。"
+    return 1
+  }
+  list_inbound_users_file "$file" 0
+  index="$(ask_default "要删除的客户端 INDEX" "1")"
+  [[ "$index" =~ ^[0-9]+$ ]] && (( 10#$index >= 1 && 10#$index <= count )) || {
+    err "WireGuard 客户端 INDEX 不存在。"
+    return 1
+  }
+  array_index=$((10#$index - 1))
+  public="$(jq -r --argjson index "$array_index" '
+    .inbounds[0].settings.peers[$index].publicKey
+  ' "$file")"
+  profile="$(wireguard_profile_path "$tag" "$public")"
+  json="$(jq --argjson index "$array_index" '
+    .inbounds[0].settings.peers |= del(.[$index])
+  ' "$file")"
+  write_inbound_candidate "$file" "$json" \
+    "已删除 WireGuard 入站 $tag 的客户端 $index" || return 1
+  rm -f "$profile"
+}
+
 add_inbound_user() {
   need_xray || return
   local tag file protocol count label credential flow method json username
@@ -3430,6 +4031,10 @@ add_inbound_user() {
     err "$protocol 入站不支持此用户管理器。"
     return 1
   }
+  if [[ "$protocol" == "wireguard" ]]; then
+    add_wireguard_peer "$tag" "$file"
+    return
+  fi
   count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
 
   if [[ "$protocol" == "shadowsocks" ]]; then
@@ -3527,6 +4132,10 @@ edit_inbound_user() {
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
   protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
   inbound_supports_user_management "$protocol" || { err "$protocol 不支持此用户管理器。"; return 1; }
+  if [[ "$protocol" == "wireguard" ]]; then
+    edit_wireguard_peer "$tag" "$file"
+    return
+  fi
   count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
   list_inbound_users_file "$file" 0
   if [[ "$protocol" == "shadowsocks" ]] && (( count > 0 )); then
@@ -3638,6 +4247,10 @@ delete_inbound_user() {
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
   protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
   inbound_supports_user_management "$protocol" || { err "$protocol 不支持此用户管理器。"; return 1; }
+  if [[ "$protocol" == "wireguard" ]]; then
+    delete_wireguard_peer "$tag" "$file"
+    return
+  fi
   count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
   list_inbound_users_file "$file" 0
   index="$(ask_default "要删除的用户 INDEX" "1")"
@@ -3904,12 +4517,39 @@ ensure_qrencode() {
   command -v qrencode >/dev/null 2>&1
 }
 
+show_wireguard_client_config() {
+  local tag="$1" file="$2" count index config
+  list_inbound_users_file "$file" 0
+  count="$(jq -r '(.inbounds[0].settings.peers // []) | length' "$file")"
+  index="$(ask_default "要导出的客户端 INDEX" "1")"
+  [[ "$index" =~ ^[0-9]+$ ]] && (( 10#$index >= 1 && 10#$index <= count )) || {
+    err "WireGuard 客户端 INDEX 不存在。"
+    return 1
+  }
+  config="$(render_wireguard_client_config "$tag" "$((10#$index))")" || return 1
+  warn "WireGuard 客户端配置与二维码包含客户端私钥；不要截图或发送到公开位置。"
+  confirm "确认在终端显示完整客户端配置？" || return 1
+  printf '\n%sWireGuard 客户端配置%s\n%s\n' "$C_BOLD" "$C_RESET" "$config"
+  if confirm "在终端显示可供 WireGuard App 扫描的二维码？"; then
+    if ensure_qrencode; then
+      printf '\n'
+      printf '%s\n' "$config" | qrencode -t ANSIUTF8
+    else
+      warn "未生成二维码，配置仍可复制保存为 .conf 导入。"
+    fi
+  fi
+}
+
 show_inbound_share_link() {
   local tag file protocol count user_index listen server_host remark default_index
   tag="$(choose_inbound_tag "选择要分享的入站" "${1:-}")" || return 1
   file="$(find_inbound_file "$tag" || true)"
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
   protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
+  if [[ "$protocol" == "wireguard" ]]; then
+    show_wireguard_client_config "$tag" "$file"
+    return
+  fi
   inbound_supports_user_management "$protocol" || {
     err "$protocol 暂无通用分享链接。"
     return 1
@@ -3977,6 +4617,10 @@ delete_inbound() {
     rm -f "$tmp"
     ok "已删除：$tag"
     info "备份：$backup"
+    if [[ -d "$(wireguard_profile_directory "$tag")" ]]; then
+      rm -rf "$(wireguard_profile_directory "$tag")"
+      info "已清理对应 WireGuard 客户端私钥和配置资料。"
+    fi
     [[ "$old_port" =~ ^[0-9]+$ ]] && remove_managed_ufw_rules "$tag" "$old_port"
     if ! remove_managed_route_tag "forward-$(sanitize_tag "$tag")"; then
       warn "入站已删除，但对应的自动路由清理失败，请在路由菜单中检查。"
@@ -4073,6 +4717,40 @@ diagnose_inbound() {
           failures=$((failures + 1))
         fi
       done
+    fi
+  fi
+
+  if [[ "$protocol" == "wireguard" ]]; then
+    credential="$(jq -r '.settings.secretKey // empty' <<<"$inbound")"
+    if validate_wireguard_key "$credential"; then
+      ok "WireGuard 服务端私钥的 Base64 和长度正常。"
+    else
+      err "WireGuard 服务端私钥不是有效的 Base64 32 字节密钥。"
+      failures=$((failures + 1))
+    fi
+    count="$(jq -r '(.settings.peers // []) | length' <<<"$inbound")"
+    (( count > 0 )) || { err "WireGuard 入站没有配置客户端 Peer。"; failures=$((failures + 1)); }
+    for ((index = 0; index < count; index++)); do
+      credential="$(jq -r --argjson index "$index" '
+        .settings.peers[$index].publicKey // ""' <<<"$inbound")"
+      if ! validate_wireguard_key "$credential"; then
+        err "WireGuard 客户端 $((index + 1)) 的公钥格式无效。"
+        failures=$((failures + 1))
+      fi
+      while IFS= read -r item; do
+        if ! validate_wireguard_cidr "$item"; then
+          err "WireGuard 客户端 $((index + 1)) 的地址无效：$item"
+          failures=$((failures + 1))
+        fi
+      done < <(jq -r --argjson index "$index" '
+        .settings.peers[$index].allowedIPs[]?' <<<"$inbound")
+    done
+    if jq -e '
+      ((.settings.peers // []) | map(.publicKey) | length) !=
+      ((.settings.peers // []) | map(.publicKey) | unique | length)
+    ' <<<"$inbound" >/dev/null 2>&1; then
+      err "WireGuard 入站存在重复的客户端公钥。"
+      failures=$((failures + 1))
     fi
   fi
 
@@ -4183,7 +4861,7 @@ inbound_detail_menu() {
     show_inbound_summary_file "$file" "$tag"
     if (( managed )); then
       echo "1) 查看用户"
-      echo "2) 分享链接与二维码"
+      echo "2) 分享链接 / WireGuard 客户端配置与二维码"
       echo "3) 编辑入站"
       echo "4) 用户管理"
     else
@@ -4425,84 +5103,269 @@ add_shadowsocks_outbound() {
   safe_write_outbound "$tag" "$json"
 }
 
-add_wireguard_outbound() {
-  need_xray || return
-  local tag secret addresses endpoint public_key allowed reserved mtu keepalive strategy kernel
-  local addresses_json allowed_json reserved_json no_kernel json
-  tag="$(ask_named_tag "出站" "warp")"
-  secret="$(ask_required "WireGuard 客户端 PrivateKey")"
-  addresses="$(ask_required "客户端地址/CIDR，多个用逗号分隔")"
-  endpoint="$(ask_default "服务端 Endpoint" "engage.cloudflareclient.com:2408")"
-  public_key="$(ask_required "服务端 PublicKey")"
-  allowed="$(ask_default "AllowedIPs，多个用逗号分隔" "0.0.0.0/0,::/0")"
-  reserved="$(ask_default "Reserved 三个字节，普通 WireGuard 留空" "")"
-  mtu="$(ask_port "MTU" "1280")"
-  keepalive="$(ask_default "KeepAlive 秒数" "0")"
-  [[ "$keepalive" =~ ^[0-9]+$ ]] || keepalive=0
-  strategy="$(ask_default "域名策略 ForceIP / ForceIPv4 / ForceIPv6" "ForceIP")"
+wireguard_reserved_json() {
+  local value="$1" result
+  if [[ -z "$value" ]]; then
+    printf '[]'
+    return 0
+  fi
+  value="${value#[}"
+  value="${value%]}"
+  result="$(jq -cn --arg value "$value" '
+    $value | split(",") | map(gsub("[[:space:]]"; "") | tonumber)
+  ' 2>/dev/null)" || {
+    err "Reserved 必须是逗号分隔的数字。"
+    return 1
+  }
+  if ! jq -e 'length == 3 and all(type == "number" and . == floor and . >= 0 and . <= 255)' \
+       >/dev/null <<<"$result"; then
+    err "Reserved 必须正好包含 3 个 0-255 的整数。"
+    return 1
+  fi
+  printf '%s' "$result"
+}
+
+wireguard_validate_strategy() {
+  local addresses="$1" strategy="$2" value ipv4=0 ipv6=0
   case "$strategy" in
     ForceIP|ForceIPv4|ForceIPv6|ForceIPv6v4|ForceIPv4v6) ;;
-    *) strategy="ForceIP" ;;
+    *) err "无效的 WireGuard 域名解析策略：$strategy"; return 1 ;;
   esac
-  kernel="$(ask_default "使用内核 TUN（性能高，但可能受容器权限/路由表影响）y / n" "n")"
-  if [[ "${kernel,,}" == "y" || "${kernel,,}" == "yes" ]]; then
-    no_kernel=false
-  else
-    no_kernel=true
+  while IFS= read -r value; do
+    [[ -n "$value" ]] || continue
+    if [[ "$value" == *:* ]]; then ipv6=1; else ipv4=1; fi
+  done < <(jq -r '.[]' <<<"$(csv_to_json_array "$addresses")")
+  if [[ "$strategy" == "ForceIPv4" && "$ipv4" != "1" ]]; then
+    err "ForceIPv4 需要客户端地址中包含 IPv4 地址。"
+    return 1
   fi
-
-  addresses_json="$(csv_to_json_array "$addresses")"
-  allowed_json="$(csv_to_json_array "$allowed")"
-  if [[ -n "$reserved" ]]; then
-    reserved_json="$(jq -cn --arg value "$reserved" '
-      $value | split(",") | map(gsub("[[:space:]]"; "") | tonumber)
-    ' 2>/dev/null)" || {
-      err "Reserved 必须是逗号分隔的数字。"
-      return
-    }
-    if ! jq -e 'length == 3 and all(. >= 0 and . <= 255)' >/dev/null <<<"$reserved_json"; then
-      err "Reserved 必须正好包含 3 个 0-255 的数字。"
-      return
-    fi
-  else
-    reserved_json='[]'
+  if [[ "$strategy" == "ForceIPv6" && "$ipv6" != "1" ]]; then
+    err "ForceIPv6 需要客户端地址中包含 IPv6 地址。"
+    return 1
   fi
+}
 
-  json="$(jq -cn \
-    --arg tag "$tag" --arg secret "$secret" \
-    --arg endpoint "$endpoint" --arg public "$public_key" \
-    --arg strategy "$strategy" --argjson addresses "$addresses_json" \
-    --argjson allowed "$allowed_json" --argjson reserved "$reserved_json" \
-    --argjson mtu "$mtu" --argjson keepalive "$keepalive" \
-    --argjson no_kernel "$no_kernel" '
+build_wireguard_outbound_json() {
+  local tag="$1" secret="$2" addresses="$3" endpoint="$4" public_key="$5"
+  local allowed="$6" preshared="$7" reserved="$8" mtu="$9" keepalive="${10}"
+  local strategy="${11}" no_kernel="${12}" reserved_json
+  validate_wireguard_key "$secret" || { err "客户端 PrivateKey 格式无效。"; return 1; }
+  validate_wireguard_key "$public_key" || { err "服务端 PublicKey 格式无效。"; return 1; }
+  if [[ -n "$preshared" ]] && ! validate_wireguard_key "$preshared"; then
+    err "PresharedKey 必须是标准 Base64 32 字节密钥。"
+    return 1
+  fi
+  validate_wireguard_cidr_list "$addresses" || { err "客户端地址/CIDR 无效。"; return 1; }
+  validate_wireguard_cidr_list "$allowed" || { err "AllowedIPs 包含无效 CIDR。"; return 1; }
+  validate_wireguard_endpoint "$endpoint" || { err "服务端 Endpoint 格式无效。"; return 1; }
+  [[ "$mtu" =~ ^[0-9]+$ ]] && (( 10#$mtu >= 576 && 10#$mtu <= 9000 )) || {
+    err "WireGuard MTU 必须在 576-9000 之间。"
+    return 1
+  }
+  [[ "$keepalive" =~ ^[0-9]+$ ]] && (( 10#$keepalive <= 65535 )) || {
+    err "KeepAlive 必须在 0-65535 之间。"
+    return 1
+  }
+  [[ "$no_kernel" == "true" || "$no_kernel" == "false" ]] || return 1
+  wireguard_validate_strategy "$addresses" "$strategy" || return 1
+  reserved_json="$(wireguard_reserved_json "$reserved")" || return 1
+  jq -cn \
+    --arg tag "$tag" --arg secret "$secret" --arg endpoint "$endpoint" \
+    --arg public "$public_key" --arg preshared "$preshared" --arg strategy "$strategy" \
+    --argjson addresses "$(csv_to_json_array "$addresses")" \
+    --argjson allowed "$(csv_to_json_array "$allowed")" \
+    --argjson reserved "$reserved_json" --argjson mtu "$((10#$mtu))" \
+    --argjson keepalive "$((10#$keepalive))" --argjson no_kernel "$no_kernel" '
     {
-      outbounds:[
-        {
-          tag:$tag,
-          protocol:"wireguard",
-          settings:
-            (
+      outbounds:[{
+        tag:$tag,
+        protocol:"wireguard",
+        settings:(
+          {
+            secretKey:$secret,
+            address:$addresses,
+            peers:[(
               {
-                secretKey:$secret,
-                address:$addresses,
-                peers:[
-                  {
-                    endpoint:$endpoint,
-                    publicKey:$public,
-                    allowedIPs:$allowed,
-                    keepAlive:$keepalive
-                  }
-                ],
-                noKernelTun:$no_kernel,
-                mtu:$mtu,
-                domainStrategy:$strategy
-              }
-              + (if ($reserved | length) == 0 then {} else {reserved:$reserved} end)
-            )
-        }
-      ]
+                endpoint:$endpoint,publicKey:$public,
+                allowedIPs:$allowed,keepAlive:$keepalive
+              } + (if $preshared == "" then {} else {preSharedKey:$preshared} end)
+            )],
+            noKernelTun:$no_kernel,mtu:$mtu,domainStrategy:$strategy
+          } + (if ($reserved | length) == 0 then {} else {reserved:$reserved} end)
+        )
+      }]
     }
-  ')"
+  '
+}
+
+wireguard_userspace_choice() {
+  local kernel
+  kernel="$(ask_default \
+    "使用内核 TUN（性能高，但可能受容器权限/路由表影响）y / n" "n")"
+  if [[ "${kernel,,}" == "y" || "${kernel,,}" == "yes" ]]; then
+    printf 'false'
+  else
+    printf 'true'
+  fi
+}
+
+add_wireguard_outbound() {
+  need_xray || return
+  local tag secret addresses endpoint public_key allowed preshared reserved
+  local mtu keepalive strategy no_kernel json client_public
+  tag="$(ask_named_tag "出站" "warp")"
+  secret="$(ask_required "客户端 PrivateKey（输入 auto 可生成并登记到自建服务端）")"
+  if [[ "${secret,,}" == "auto" ]]; then
+    install_wireguard_tools || { err "需要 wireguard-tools 才能生成客户端密钥。"; return 1; }
+    secret="$(wg genkey)"
+    client_public="$(printf '%s' "$secret" | wg pubkey)"
+    info "新生成的客户端 PublicKey：$client_public"
+    warn "必须先把该公钥登记到对端服务端；WARP 账号不能直接使用未注册的随机密钥。"
+  elif ! validate_wireguard_key "$secret"; then
+    err "客户端 PrivateKey 不是有效的 Base64 32 字节密钥。"
+    return 1
+  fi
+  addresses="$(ask_wireguard_cidrs "客户端地址/CIDR，多个用逗号分隔" "172.16.0.2/32")"
+  endpoint="$(ask_wireguard_endpoint "服务端 Endpoint" "engage.cloudflareclient.com:2408")"
+  public_key="$(ask_wireguard_key "服务端 PublicKey（必须由服务端提供）")"
+  preshared="$(ask_default "PresharedKey（没有请留空）" "")"
+  if [[ -n "$preshared" ]] && ! validate_wireguard_key "$preshared"; then
+    err "PresharedKey 不是有效的 Base64 32 字节密钥。"
+    return 1
+  fi
+  allowed="$(ask_wireguard_cidrs "AllowedIPs，多个用逗号分隔" "0.0.0.0/0,::/0")"
+  reserved="$(ask_default "Reserved 三个字节，普通 WireGuard 留空" "")"
+  mtu="$(ask_wireguard_mtu "MTU" "1280")"
+  keepalive="$(ask_wireguard_keepalive "KeepAlive 秒数" "0")"
+  strategy="$(ask_default "域名策略 ForceIP / ForceIPv4 / ForceIPv6" "ForceIP")"
+  no_kernel="$(wireguard_userspace_choice)"
+  json="$(build_wireguard_outbound_json "$tag" "$secret" "$addresses" "$endpoint" \
+    "$public_key" "$allowed" "$preshared" "$reserved" "$mtu" "$keepalive" \
+    "$strategy" "$no_kernel")" || return 1
+  safe_write_outbound "$tag" "$json"
+}
+
+wireguard_trim() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+parse_wireguard_config() {
+  local file="$1" raw line section="" key value peers=0
+  WIREGUARD_IMPORTED_SECRET=""
+  WIREGUARD_IMPORTED_ADDRESS=""
+  WIREGUARD_IMPORTED_DNS=""
+  WIREGUARD_IMPORTED_MTU=""
+  WIREGUARD_IMPORTED_PUBLIC=""
+  WIREGUARD_IMPORTED_PRESHARED=""
+  WIREGUARD_IMPORTED_ENDPOINT=""
+  WIREGUARD_IMPORTED_ALLOWED=""
+  WIREGUARD_IMPORTED_KEEPALIVE="0"
+  WIREGUARD_IMPORTED_RESERVED=""
+  while IFS= read -r raw || [[ -n "$raw" ]]; do
+    line="${raw%$'\r'}"
+    line="${line%%#*}"
+    line="${line%%;*}"
+    line="$(wireguard_trim "$line")"
+    [[ -n "$line" ]] || continue
+    if [[ "$line" =~ ^\[([^]]+)\]$ ]]; then
+      section="${BASH_REMATCH[1],,}"
+      case "$section" in
+        interface) ;;
+        peer)
+          peers=$((peers + 1))
+          (( peers == 1 )) || {
+            err "一个 Xray WireGuard 出站配置导入暂时只支持一个 [Peer]。"
+            return 1
+          }
+          ;;
+        *) err "不支持的 WireGuard 配置区段：[$section]"; return 1 ;;
+      esac
+      continue
+    fi
+    [[ "$line" == *=* && -n "$section" ]] || {
+      err "WireGuard 配置行无效：$line"
+      return 1
+    }
+    key="$(wireguard_trim "${line%%=*}")"
+    value="$(wireguard_trim "${line#*=}")"
+    case "${section}:${key,,}" in
+      interface:privatekey) WIREGUARD_IMPORTED_SECRET="$value" ;;
+      interface:address)
+        if [[ -n "$WIREGUARD_IMPORTED_ADDRESS" ]]; then
+          WIREGUARD_IMPORTED_ADDRESS="${WIREGUARD_IMPORTED_ADDRESS},${value}"
+        else
+          WIREGUARD_IMPORTED_ADDRESS="$value"
+        fi
+        ;;
+      interface:dns) WIREGUARD_IMPORTED_DNS="$value" ;;
+      interface:mtu) WIREGUARD_IMPORTED_MTU="$value" ;;
+      interface:reserved|peer:reserved) WIREGUARD_IMPORTED_RESERVED="$value" ;;
+      peer:publickey) WIREGUARD_IMPORTED_PUBLIC="$value" ;;
+      peer:presharedkey) WIREGUARD_IMPORTED_PRESHARED="$value" ;;
+      peer:endpoint) WIREGUARD_IMPORTED_ENDPOINT="$value" ;;
+      peer:allowedips)
+        if [[ -n "$WIREGUARD_IMPORTED_ALLOWED" ]]; then
+          WIREGUARD_IMPORTED_ALLOWED="${WIREGUARD_IMPORTED_ALLOWED},${value}"
+        else
+          WIREGUARD_IMPORTED_ALLOWED="$value"
+        fi
+        ;;
+      peer:persistentkeepalive|peer:keepalive) WIREGUARD_IMPORTED_KEEPALIVE="$value" ;;
+      interface:listenport|interface:table|interface:fwmark|\
+      interface:preup|interface:postup|interface:predown|interface:postdown|\
+      interface:saveconfig) info "Xray WireGuard 出站忽略宿主机 wg-quick 字段：$key" ;;
+      *) warn "未识别的 WireGuard 配置字段将被忽略：$key" ;;
+    esac
+  done <"$file"
+  (( peers == 1 )) || { err "WireGuard 配置缺少 [Peer] 区段。"; return 1; }
+  [[ -n "$WIREGUARD_IMPORTED_SECRET" ]] || { err "[Interface] 缺少 PrivateKey。"; return 1; }
+  [[ -n "$WIREGUARD_IMPORTED_ADDRESS" ]] || { err "[Interface] 缺少 Address。"; return 1; }
+  [[ -n "$WIREGUARD_IMPORTED_PUBLIC" ]] || { err "[Peer] 缺少 PublicKey。"; return 1; }
+  [[ -n "$WIREGUARD_IMPORTED_ENDPOINT" ]] || { err "[Peer] 缺少 Endpoint。"; return 1; }
+  WIREGUARD_IMPORTED_ALLOWED="${WIREGUARD_IMPORTED_ALLOWED:-0.0.0.0/0,::/0}"
+  WIREGUARD_IMPORTED_MTU="${WIREGUARD_IMPORTED_MTU:-1280}"
+}
+
+import_wireguard_outbound() {
+  need_xray || return
+  local tag source_path tmp line strategy no_kernel reserved json
+  tag="$(ask_named_tag "出站" "wireguard-import")"
+  source_path="$(ask_default "WireGuard .conf 文件路径（留空后粘贴配置）" "")"
+  tmp="$(mktemp)"
+  chmod 600 "$tmp"
+  if [[ -n "$source_path" ]]; then
+    [[ -f "$source_path" && -r "$source_path" ]] || {
+      rm -f "$tmp"
+      err "WireGuard 配置文件不存在或不可读取：$source_path"
+      return 1
+    }
+    cat "$source_path" >"$tmp"
+  else
+    info "粘贴完整 WireGuard 配置；单独输入 END 结束。"
+    while IFS= read -r line; do
+      [[ "$line" != "END" ]] || break
+      printf '%s\n' "$line" >>"$tmp"
+    done
+  fi
+  if ! parse_wireguard_config "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  rm -f "$tmp"
+  [[ -z "$WIREGUARD_IMPORTED_DNS" ]] || \
+    info "配置中的 DNS=$WIREGUARD_IMPORTED_DNS 不会修改宿主机 DNS；Xray 使用自身 DNS 配置。"
+  reserved="$(ask_default "Reserved 三个字节，普通 WireGuard 留空" \
+    "$WIREGUARD_IMPORTED_RESERVED")"
+  strategy="$(ask_default "域名策略 ForceIP / ForceIPv4 / ForceIPv6" "ForceIP")"
+  no_kernel="$(wireguard_userspace_choice)"
+  json="$(build_wireguard_outbound_json "$tag" "$WIREGUARD_IMPORTED_SECRET" \
+    "$WIREGUARD_IMPORTED_ADDRESS" "$WIREGUARD_IMPORTED_ENDPOINT" \
+    "$WIREGUARD_IMPORTED_PUBLIC" "$WIREGUARD_IMPORTED_ALLOWED" \
+    "$WIREGUARD_IMPORTED_PRESHARED" "$reserved" "$WIREGUARD_IMPORTED_MTU" \
+    "$WIREGUARD_IMPORTED_KEEPALIVE" "$strategy" "$no_kernel")" || return 1
   safe_write_outbound "$tag" "$json"
 }
 
@@ -4609,6 +5472,7 @@ add_outbound_menu() {
     echo "4) WireGuard / WARP"
     echo "5) Shadowsocks"
     echo "6) 自定义 Outbound JSON"
+    echo "7) 导入标准 WireGuard / WARP .conf"
     echo "0) 返回"
     local c
     read -r -p "请选择: " c || true
@@ -4619,6 +5483,7 @@ add_outbound_menu() {
       4) add_wireguard_outbound; pause ;;
       5) add_shadowsocks_outbound; pause ;;
       6) import_custom_outbound; pause ;;
+      7) import_wireguard_outbound; pause ;;
       0) return ;;
     esac
   done
@@ -5372,6 +6237,15 @@ restore_backup() {
     rm -rf "$CERT_DIR"
     cp -a "$tmp/$(basename "$CERT_DIR")" "$CERT_DIR"
   fi
+  if [[ -d "$tmp/wireguard" ]]; then
+    rm -rf "${STATE_DIR}/wireguard"
+    cp -a "$tmp/wireguard" "${STATE_DIR}/wireguard"
+    chmod 700 "${STATE_DIR}/wireguard"
+    find "${STATE_DIR}/wireguard" -type d -exec chmod 700 {} \;
+    find "${STATE_DIR}/wireguard" -type f -exec chmod 600 {} \;
+  else
+    rm -rf "${STATE_DIR}/wireguard"
+  fi
   rm -rf "$tmp"
 
   ensure_layout
@@ -5497,7 +6371,7 @@ inbound_management_menu() {
     echo "3) 入站详情 / 快捷管理"
     echo "4) 编辑入站"
     echo "5) 用户管理"
-    echo "6) 分享链接与二维码"
+    echo "6) 分享链接 / WireGuard 客户端配置与二维码"
     echo "7) 删除入站"
     echo "8) 查看入站原始 JSON"
     echo "9) 入站健康诊断"

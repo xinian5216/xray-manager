@@ -284,7 +284,10 @@ test_wireguard() {
         ;;
     esac
   }
-  add_wireguard <<< $'\n\n\nVKtOMD/fGswMa9Lq7XW1QmfUWZtcZ+IlOUGMUzYYuF4=\n\n\n' >/dev/null
+  add_wireguard <<< $'\n\n\n2\n\n\n\nVKtOMD/fGswMa9Lq7XW1QmfUWZtcZ+IlOUGMUzYYuF4=\n' >/dev/null
+  jq -e '
+    .inbounds[0].settings.peers[0].allowedIPs == ["10.66.66.2/32"]
+  ' "$CONF_DIR/10_inbound_wireguard-in.json" >/dev/null
   assert_config
 }
 
@@ -317,12 +320,36 @@ test_outbounds_routing_and_forwarding() {
     .outbounds[0].settings.method == "2022-blake3-aes-128-gcm"
   ' "$CONF_DIR/20_outbound_ss-out_tail.json" >/dev/null
 
-  add_wireguard_outbound <<< $'warp-native\nsK2oMSqqEg22cmF4d33HTUdTo1xTu9VZ+RNw6YNPXFY=\n172.16.0.2/32\n\nVKtOMD/fGswMa9Lq7XW1QmfUWZtcZ+IlOUGMUzYYuF4=\n\n\n\n\n\n\n' >/dev/null
+  add_wireguard_outbound <<< $'warp-native\nsK2oMSqqEg22cmF4d33HTUdTo1xTu9VZ+RNw6YNPXFY=\n172.16.0.2/32\n\nVKtOMD/fGswMa9Lq7XW1QmfUWZtcZ+IlOUGMUzYYuF4=\n\n\n\n\n\n\n\n' >/dev/null
   jq -e '
     .outbounds[0].protocol == "wireguard" and
     .outbounds[0].settings.noKernelTun == true and
     .outbounds[0].settings.peers[0].endpoint == "engage.cloudflareclient.com:2408"
   ' "$CONF_DIR/20_outbound_warp-native_tail.json" >/dev/null
+
+  cat >"$XRAY_ROOT/wireguard-provider.conf" <<'CONF'
+[Interface]
+PrivateKey = sK2oMSqqEg22cmF4d33HTUdTo1xTu9VZ+RNw6YNPXFY=
+Address = 172.16.0.3/32, fd00::3/128
+MTU = 1280
+
+[Peer]
+PublicKey = VKtOMD/fGswMa9Lq7XW1QmfUWZtcZ+IlOUGMUzYYuF4=
+PresharedKey = sK2oMSqqEg22cmF4d33HTUdTo1xTu9VZ+RNw6YNPXFY=
+Endpoint = engage.cloudflareclient.com:2408
+AllowedIPs = 0.0.0.0/0, ::/0
+PersistentKeepalive = 25
+CONF
+  import_wireguard_outbound <<<"$(printf 'wg-import\n%s\n1,2,3\n\n\n' \
+    "$XRAY_ROOT/wireguard-provider.conf")" >/dev/null
+  jq -e '
+    .outbounds[0].protocol == "wireguard" and
+    .outbounds[0].settings.address == ["172.16.0.3/32", "fd00::3/128"] and
+    .outbounds[0].settings.peers[0].preSharedKey ==
+      "sK2oMSqqEg22cmF4d33HTUdTo1xTu9VZ+RNw6YNPXFY=" and
+    .outbounds[0].settings.peers[0].keepAlive == 25 and
+    .outbounds[0].settings.reserved == [1,2,3]
+  ' "$CONF_DIR/20_outbound_wg-import_tail.json" >/dev/null
 
   add_domain_route <<< $'\ngeosite:google\ndirect-v4\n' >/dev/null
   add_service_route_preset <<< $'3\ndirect-v4\n' >/dev/null

@@ -82,7 +82,7 @@ REALITY 向导会要求：
 → 3) 入站详情 / 快捷管理
 → 4) 编辑入站
 → 5) 用户管理
-→ 6) 分享链接与二维码
+→ 6) 分享链接 / WireGuard 客户端配置与二维码
 → 8) 查看入站原始 JSON
 → 9) 入站健康诊断
 ```
@@ -100,6 +100,7 @@ REALITY 向导会要求：
 - Shadowsocks / SS2022：默认单用户；多用户时只显示真实用户，SS2022 分享密码自动组合为 `ServerPassword:UserPassword`
 - Hysteria2：auth、email
 - SOCKS5 / HTTP：用户名、密码
+- WireGuard：客户端 Peer 名称、公钥、独立隧道地址，支持自动生成或导入已有客户端公钥
 
 每次修改都会先显示 JSON 差异，再测试完整 `conf.d`，随后备份、写入和重启；测试失败不会改正式文件，重启失败会恢复旧文件。除 Shadowsocks 可退回默认主密码外，其余认证协议拒绝删除最后一个用户。
 
@@ -107,7 +108,11 @@ Shadowsocks 没有 `users` 数组时是单用户，可选择 `INDEX 0` 分享顶
 
 “分享链接与二维码”需要输入客户端实际连接的域名或 IP。VPS 监听 `0.0.0.0` 或 `::` 时不会把通配地址误写进链接。二维码通过可选的 `qrencode` 在终端显示。链接与二维码都含完整凭据，只应在可信终端使用。
 
-“入站健康诊断”会检查完整配置、服务及端口监听、SS2022 Base64/密钥长度、VMess/SS2022 时间同步、路由引用、TLS 证书和 UFW 规则；不会自动修改系统时间、防火墙或路由。
+WireGuard 创建入站时可自动生成客户端密钥对和 `10.66.66.x/32` 独立地址，或仅导入已有客户端 `PublicKey`。自动生成的 Peer 可通过 `6)` 导出标准 `[Interface]` / `[Peer]` `.conf` 并生成 WireGuard App 二维码；仅导入公钥的 Peer 不会凭空生成对端私钥，因此不能导出完整配置。服务端 `allowedIPs` 是各客户端的隧道源地址，客户端配置中的 `AllowedIPs` 是需要转发的目标网段。
+
+自动生成的客户端私钥资料保存在 `/etc/xray-manager/wireguard/<tag>/`，目录权限 `700`、文件权限 `600`；现有配置备份与恢复会一并处理。入站详情会显示 `peers/<数量>`，用户管理支持新增、删除、重命名和修改客户端地址，并拒绝重复公钥、重叠 IPv4 网段和删除最后一个 Peer。
+
+“入站健康诊断”会检查完整配置、服务及端口监听、SS2022/WireGuard Base64 密钥、WireGuard Peer 地址、VMess/SS2022 时间同步、路由引用、TLS 证书和 UFW 规则；不会自动修改系统时间、防火墙或路由。
 
 ## 5. 查看配置
 
@@ -158,9 +163,20 @@ Shadowsocks 没有 `users` 数组时是单用户，可选择 `INDEX 0` 分享顶
 - Freedom：自动、强制 IPv4、强制 IPv6、指定源 IP/CIDR
 - SOCKS5：可以连接本机 WARP SOCKS 端口
 - HTTP Proxy：只支持 TCP
-- WireGuard / WARP：需要 PrivateKey、客户端地址、Endpoint、服务端 PublicKey
+- WireGuard / WARP：手工填写 PrivateKey、客户端地址、Endpoint、服务端 PublicKey，可选 `PresharedKey`、WARP `Reserved` 与 KeepAlive
+- 导入标准 WireGuard / WARP `.conf`：文件路径或终端粘贴，自动识别 `[Interface]` / `[Peer]`、双栈地址、`PresharedKey`、MTU 和 `PersistentKeepalive`
 - Shadowsocks
 - 自定义 `OutboundObject` JSON
+
+导入入口：
+
+```text
+3) 出站管理
+→ 1) 添加出站
+→ 7) 导入标准 WireGuard / WARP .conf
+```
+
+粘贴导入时，单独输入 `END` 结束。导入不会执行 `.conf` 里的 `PostUp` 等宿主机命令，也不会改写系统 DNS 或默认路由。服务端公钥必须由服务端提供；客户端私钥如使用 `auto` 自动生成，需要将对应公钥预先登记到自建服务端，不能直接替代已注册的 WARP 密钥。
 
 新增出站保存在：
 

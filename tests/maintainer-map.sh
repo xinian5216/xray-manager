@@ -15,6 +15,10 @@ inbound="$(bash "$MAP" "SS2022 详情")"
 grep -Fq '[inbound-transport]' <<<"$inbound"
 grep -Fq 'tests/inbound-management.sh' <<<"$inbound"
 
+wireguard="$(bash "$MAP" "WireGuard 公钥")"
+grep -Fq 'tests/wireguard-management.sh' <<<"$wireguard"
+grep -Fq 'lib/xray-manager-core.sh' <<<"$wireguard"
+
 worker="$(bash "$MAP" "Worker 401")"
 grep -Fq 'worker/src/index.ts' <<<"$worker"
 grep -Fq 'worker/test/index.spec.ts' <<<"$worker"

@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.7.0** · Core：**v1.7.0**
+> 当前项目版本：**v1.8.0** · Core：**v1.8.0**
 
 ## 核心功能
 
@@ -11,17 +11,18 @@
 - VLESS、VMess、Trojan、Shadowsocks、Hysteria2
 - 编号选择入站、人类可读详情中心、迁移/外部入站只读发现与快捷管理
 - 入站端口/监听地址编辑、完整 Inbound JSON 高级编辑
-- VLESS、VMess、Trojan、Shadowsocks、Hysteria2、SOCKS/HTTP 用户增删改查
+- VLESS、VMess、Trojan、Shadowsocks、Hysteria2、SOCKS/HTTP、WireGuard 用户/Peer 增删改查
 - VLESS、VMess、Trojan、Shadowsocks、Hysteria2、SOCKS/HTTP 分享链接与终端二维码
 - SOCKS5、HTTP Proxy、WireGuard Inbound、Tunnel、TUN
-- Freedom IPv4/IPv6、SOCKS5、HTTP、Shadowsocks、WireGuard/WARP 出站管理
+- WireGuard 双端密钥生成、独立客户端地址、完整 `.conf` 配置导出与手机扫码
+- Freedom IPv4/IPv6、SOCKS5、HTTP、Shadowsocks、WireGuard/WARP 出站管理及标准 `.conf` 导入
 - GeoSite、GeoIP、CIDR、入站、IPv4/IPv6 与常用服务路由分流
 - 路由规则查看、删除、优先级调整、默认出口与自定义 RuleObject
 - TCP、UDP、TCP+UDP 端口转发，可选择公网/本机监听及指定出站
 - RAW、XHTTP、gRPC、WebSocket、HTTPUpgrade、mKCP
 - REALITY / TLS / 自定义 SNI 与 target
 - REALITY 共享 CDN target 风险检测、随机化回落限速
-- 入站健康诊断：监听、服务、SS2022 密钥、NTP、关联路由、TLS 证书与 UFW
+- 入站健康诊断：监听、服务、SS2022/WireGuard 密钥、NTP、关联路由、TLS 证书与 UFW
 - UFW、BBR、日志、配置测试、备份恢复
 - IPv6-only、NAT64 / DNS64、IPv6 可达下载代理
 - Cloudflare Worker + 私有 R2 的 IPv4 / IPv6 一键安装与后续自更新
@@ -292,7 +293,7 @@ xraym --version
 2) 入站管理
 ```
 
-v1.7.0 的入站列表会同时显示编号、Tag、协议、监听地址/端口、传输安全、用户模式和配置来源：
+v1.8.0 的入站列表会同时显示编号、Tag、协议、监听地址/端口、传输安全、用户或 WireGuard Peer 数量和配置来源：
 
 ```text
 INDEX TAG             PROTOCOL      LISTEN      PORT TRANSPORT SECURITY USERS     SOURCE
@@ -306,13 +307,40 @@ INDEX TAG             PROTOCOL      LISTEN      PORT TRANSPORT SECURITY USERS   
 - `3) 入站详情 / 快捷管理`：查看人类可读摘要，选择一次后直接进入用户、分享、编辑、路由、诊断和删除操作。
 - `4) 编辑入站`：交互修改监听端口或监听地址；高级模式用终端编辑器修改完整单个 `InboundObject`。
 - `5) 用户管理`：查看、添加、编辑和删除协议用户；拒绝删除需要认证的最后一个用户。
-- `6) 分享链接与二维码`：按用户生成导入链接，可用 `qrencode` 直接在终端显示二维码。
+- `6) 分享链接 / WireGuard 客户端配置与二维码`：按用户生成导入链接，或导出完整 WireGuard 客户端 `.conf`，可用 `qrencode` 直接在终端显示二维码。
 - `8) 查看入站原始 JSON`：默认只输出当前入站的脱敏配置；查看完整私钥和密码必须再次确认。
-- `9) 入站健康诊断`：检查配置、服务、监听端口、SS2022 密钥、NTP、关联路由、TLS 证书和已启用的 UFW。
+- `9) 入站健康诊断`：检查配置、服务、监听端口、SS2022/WireGuard 密钥、Peer 地址、NTP、关联路由、TLS 证书和已启用的 UFW。
 
-所有受管入站仍是普通的 `conf.d/10_inbound_<tag>.json`，没有数据库或隐藏状态。修改前会显示 JSON 差异，Tag 不允许在编辑器内直接改名；确认后执行“临时目录测试完整配置 → 自动备份 → 替换 → 重启”，测试或重启失败时不保留错误配置。现有“备份 / 恢复”菜单可以直接恢复这些改动。
+所有受管入站仍是普通的 `conf.d/10_inbound_<tag>.json`。WireGuard 自动生成的客户端私钥与导出资料单独保存在 root-only 的 `/etc/xray-manager/wireguard/<tag>/`，并随配置备份一起保存和恢复。修改前会显示 JSON 差异，Tag 不允许在编辑器内直接改名；确认后执行“临时目录测试完整配置 → 自动备份 → 替换 → 重启”，测试或重启失败时不保留错误配置。
 
-用户管理覆盖 VLESS、VMess、Trojan、Shadowsocks（含 SS2022 多用户）、Hysteria2、密码 SOCKS5 和 HTTP Proxy。WireGuard、Tunnel、TUN 以及自定义冷门协议没有统一用户模型，应使用高级 JSON 编辑。
+用户管理覆盖 VLESS、VMess、Trojan、Shadowsocks（含 SS2022 多用户）、Hysteria2、密码 SOCKS5、HTTP Proxy 和 WireGuard Peer。Tunnel、TUN 以及自定义冷门协议没有统一用户模型，应使用高级 JSON 编辑。
+
+### WireGuard 入站与客户端
+
+创建 WireGuard 入站时，服务端私钥与公钥会自动成对生成。客户端可选择：
+
+1. **自动生成客户端密钥对**：分配独立隧道地址，保存完整客户端配置，后续可在 `分享链接 / WireGuard 客户端配置与二维码` 中查看或扫码。
+2. **导入已有客户端 PublicKey**：适用于手机或其他设备已经创建密钥的情况；管理器只保存对端公钥，无法导出它从未获得的客户端私钥。
+
+默认每个客户端使用独立的 `10.66.66.x/32`，可以手动添加 IPv6 地址。服务端 Peer 的 `allowedIPs` 表示该客户端允许使用的隧道源地址，不应给多个客户端同时配置 `0.0.0.0/0,::/0`；客户端 `.conf` 中的 `AllowedIPs` 则表示通过隧道转发的目标网段，两者含义不能混淆。
+
+自动生成的配置形式为：
+
+```ini
+[Interface]
+PrivateKey = 客户端私钥
+Address = 10.66.66.2/32
+DNS = 1.1.1.1
+MTU = 1420
+
+[Peer]
+PublicKey = 服务端公钥
+Endpoint = vpn.example.com:51820
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25
+```
+
+服务端私钥不会在创建结果中显示；客户端配置和二维码包含客户端私钥，只有明确确认后才显示。客户端资料目录权限为 `700`，文件权限为 `600`，并纳入现有 root-only 备份与恢复。WireGuard 直接作为跨境外层时协议特征明显，不适合替代具有伪装能力的 REALITY 等传输。
 
 Shadowsocks 默认是单用户，`INDEX 0` 对应可直接连接的顶层密码。添加第一个用户后会切换为多用户：旧单用户链接失效，实际用户从 `INDEX 1` 开始。对 SS2022，顶层密码变成服务器主 PSK，不再是独立用户，客户端密码必须是 `ServerPassword:UserPassword`。当前 Xray 只支持 `2022-blake3-aes-128-gcm` 和 `2022-blake3-aes-256-gcm` 的 SS2022 多用户；`2022-blake3-chacha20-poly1305` 保持单用户。删除最后一个附加用户会恢复单用户模式，并再次提示现有链接失效。
 
@@ -351,9 +379,11 @@ REALITY 会把未通过认证的连接转发到 `target` 以维持正常 TLS 站
 - Freedom 自动、强制 IPv4、强制 IPv6 及指定源 IP/CIDR
 - SOCKS5（适合连接本机 WARP 代理）
 - HTTP Proxy（仅 TCP）
-- WireGuard / WARP（默认使用 userspace TUN，避免容器权限和路由表冲突）
+- WireGuard / WARP 手动配置及标准 `.conf` 导入，支持 `PresharedKey`、IPv6、`PersistentKeepalive` 和 WARP `Reserved`；默认使用 userspace TUN，避免容器权限和路由表冲突
 - Shadowsocks
 - 自定义单个 `OutboundObject` JSON
+
+标准 WireGuard 配置可在 `3) 出站管理 → 1) 添加出站 → 7) 导入标准 WireGuard / WARP .conf` 中通过文件路径或直接粘贴导入。服务端 `PublicKey` 必须来自现有服务端；如果手动选择自动生成客户端私钥，必须先把对应客户端公钥登记到对端。WARP 账号不能直接使用未注册的随机客户端密钥。`.conf` 中的 `DNS` 不会改写宿主机 DNS，Xray 仍使用自己的 DNS 配置。
 
 脚本创建的出站使用 `20_outbound_<tag>_tail.json`。文件名必须保留 `tail`，否则 Xray 多文件合并可能把新出站插入最前并意外改变默认出口。
 

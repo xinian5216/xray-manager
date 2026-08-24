@@ -29,6 +29,7 @@ jobs:
           bash -n tests/maintainer-map.sh
           bash -n tests/bootstrap-install.sh
           bash -n tests/inbound-management.sh
+          bash -n tests/wireguard-management.sh
           bash -n tests/smoke-configs.sh
           bash -n tests/offline-install.sh
           bash -n tests/cloudflare-update.sh
@@ -57,6 +58,7 @@ jobs:
           shellcheck -S warning tests/bootstrap-install.sh
           shellcheck -S warning lib/xray-manager-core.sh
           shellcheck -e SC2034 -S warning tests/inbound-management.sh
+          shellcheck -e SC2034 -S warning tests/wireguard-management.sh
           # The smoke test intentionally rebinds globals consumed by sourced Core functions.
           shellcheck -e SC2034 -S warning tests/smoke-configs.sh
           shellcheck -e SC2034 -S warning tests/offline-install.sh
@@ -84,6 +86,8 @@ jobs:
         run: bash tests/geodata-release-delay.sh
       - name: Inbound management regression test
         run: bash tests/inbound-management.sh
+      - name: WireGuard management regression test
+        run: bash tests/wireguard-management.sh
       - name: Xray configuration smoke tests
         run: |
           XRAY_VERSION="$(tr -d '[:space:]' < XRAY_VERSION)"
