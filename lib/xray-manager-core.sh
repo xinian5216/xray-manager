@@ -3923,7 +3923,7 @@ add_wireguard_peer() {
     warn "Peer 已添加，但 root-only 客户端配置保存失败。"
     return 1
   }
-  [[ -z "$private" ]] || info "客户端配置已保存；可在“分享配置与二维码”中按 INDEX 导出。"
+  [[ -z "$private" ]] || info '客户端配置已保存；可在分享配置与二维码中按 INDEX 导出。'
 }
 
 edit_wireguard_peer() {
