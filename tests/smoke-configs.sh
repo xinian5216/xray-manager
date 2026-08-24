@@ -193,6 +193,51 @@ test_basic_inbounds() {
   assert_config
 }
 
+test_shadowsocks_user_modes() {
+  local file master user secret
+
+  reset_case shadowsocks-user-modes
+  add_shadowsocks <<< $'ss-managed\n8388\n\n2\n\n\n' >/dev/null
+  file="$CONF_DIR/10_inbound_ss-managed.json"
+  master="$(jq -r '.inbounds[0].settings.password' "$file")"
+  user="$(generate_shadowsocks_secret 2022-blake3-aes-256-gcm)"
+
+  build_share_link "$file" 0 example.com single
+  (
+    confirm() { return 0; }
+    add_inbound_user ss-managed <<<"$(printf 'phone@example.com\n%s\n' "$user")" >/dev/null
+  )
+  jq -e --arg user "$user" '
+    (.inbounds[0].settings.users | length) == 1 and
+    .inbounds[0].settings.users[0].password == $user
+  ' "$file" >/dev/null
+  assert_config
+
+  if build_share_link "$file" 0 example.com invalid >/dev/null 2>&1; then
+    echo "multi-user Shadowsocks unexpectedly accepted server PSK as user 0" >&2
+    return 1
+  fi
+  build_share_link "$file" 1 example.com multi
+  secret="$(printf '%s' "2022-blake3-aes-256-gcm:${master}:${user}" | base64_urlsafe)"
+  [[ "$SHARE_LINK" == "ss://${secret}@example.com:8388#multi" ]]
+
+  (
+    confirm() { return 0; }
+    delete_inbound_user ss-managed <<<"1" >/dev/null
+  )
+  jq -e '.inbounds[0].settings | has("users") | not' "$file" >/dev/null
+  build_share_link "$file" 0 example.com restored
+  assert_config
+
+  reset_case shadowsocks-chacha-single
+  add_shadowsocks <<< $'ss-chacha\n8389\n\n3\n\n\n' >/dev/null
+  if add_inbound_user ss-chacha >/dev/null 2>&1; then
+    echo "ChaCha20-2022 unexpectedly accepted multi-user mode" >&2
+    return 1
+  fi
+  assert_config
+}
+
 test_hysteria() {
   reset_case hysteria
   mkdir -p "$TEST_ROOT/cert"
@@ -339,6 +384,7 @@ test_vmess_transport websocket websocket $'\n\n\n\n4\n\n\n2\ny'
 test_vmess_transport httpupgrade httpupgrade $'\n\n\n\n5\n\n\n2\ny'
 test_vmess_transport mkcp mkcp $'\n\n\n\n6\n\n'
 test_basic_inbounds
+test_shadowsocks_user_modes
 test_hysteria
 test_trojan_tls
 test_wireguard

@@ -11,6 +11,10 @@ routing="$(bash "$MAP" "路由规则顺序")"
 grep -Fq 'lib/xray-manager-core.sh' <<<"$routing"
 grep -Fq 'tests/smoke-configs.sh' <<<"$routing"
 
+inbound="$(bash "$MAP" "SS2022 详情")"
+grep -Fq '[inbound-transport]' <<<"$inbound"
+grep -Fq 'tests/inbound-management.sh' <<<"$inbound"
+
 worker="$(bash "$MAP" "Worker 401")"
 grep -Fq 'worker/src/index.ts' <<<"$worker"
 grep -Fq 'worker/test/index.spec.ts' <<<"$worker"

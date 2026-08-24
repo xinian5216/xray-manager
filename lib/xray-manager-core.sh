@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.6.1"
+SCRIPT_VERSION="1.7.0"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -2227,18 +2227,47 @@ build_stream_settings() {
   STREAM_SETTINGS="$(jq -cn --argjson b "$base" --argjson s "$SECURITY_SETTINGS" '$b + $s')"
 }
 
+managed_ufw_comment() {
+  local tag="$1" protocol="$2"
+  printf 'XrayManager:%s:%s' "$(sanitize_tag "$tag")" "$protocol"
+}
+
+managed_ufw_allow() {
+  local port="$1" protocol="$2" tag="${3:-}" comment="Xray"
+  [[ -n "$tag" ]] && comment="$(managed_ufw_comment "$tag" "$protocol")"
+  ufw allow "$port/$protocol" comment "$comment" >/dev/null 2>&1 || \
+    ufw allow "$port/$protocol" >/dev/null 2>&1 || true
+}
+
+remove_managed_ufw_rules() {
+  local tag="$1" port="$2" protocol comment status
+  command -v ufw >/dev/null 2>&1 || return 0
+  status="$(ufw status 2>/dev/null || true)"
+  [[ "$status" == *"Status: active"* ]] || return 0
+
+  for protocol in tcp udp; do
+    comment="$(managed_ufw_comment "$tag" "$protocol")"
+    if printf '%s\n' "$status" | grep -F -- "$comment" | \
+       grep -Eq "(^|[[:space:]])${port}/${protocol}([[:space:]]|$)"; then
+      ufw --force delete allow "$port/$protocol" >/dev/null 2>&1 || \
+        warn "无法自动清理由管理器创建的 UFW 规则：$port/$protocol"
+    fi
+  done
+  return 0
+}
+
 maybe_ufw_for_transport() {
-  local port="$1" transport="$2" protocol="${3:-}"
+  local port="$1" transport="$2" protocol="${3:-}" tag="${4:-}"
   command -v ufw >/dev/null 2>&1 || return 0
   ufw status 2>/dev/null | grep -q '^Status: active' || return 0
 
   if [[ "$transport" == "mkcp" || "$transport" == "hysteria" || "$protocol" == "wireguard" ]]; then
-    ufw allow "$port/udp" comment "Xray" >/dev/null 2>&1 || ufw allow "$port/udp" >/dev/null 2>&1 || true
+    managed_ufw_allow "$port" udp "$tag"
   elif [[ "$protocol" == "shadowsocks" ]]; then
-    ufw allow "$port/tcp" comment "Xray" >/dev/null 2>&1 || ufw allow "$port/tcp" >/dev/null 2>&1 || true
-    ufw allow "$port/udp" comment "Xray" >/dev/null 2>&1 || ufw allow "$port/udp" >/dev/null 2>&1 || true
+    managed_ufw_allow "$port" tcp "$tag"
+    managed_ufw_allow "$port" udp "$tag"
   else
-    ufw allow "$port/tcp" comment "Xray" >/dev/null 2>&1 || ufw allow "$port/tcp" >/dev/null 2>&1 || true
+    managed_ufw_allow "$port" tcp "$tag"
   fi
 }
 
@@ -2314,7 +2343,7 @@ add_vless() {
     }')"
 
   safe_write_inbound "$tag" "$json" || return
-  maybe_ufw_for_transport "$port" "$TRANSPORT" "vless"
+  maybe_ufw_for_transport "$port" "$TRANSPORT" "vless" "$tag"
   show_created_summary "$tag" "vless" "$listen" "$port" "$uuid"
 }
 
@@ -2350,7 +2379,7 @@ add_vmess() {
     }')"
 
   safe_write_inbound "$tag" "$json" || return
-  maybe_ufw_for_transport "$port" "$TRANSPORT" "vmess"
+  maybe_ufw_for_transport "$port" "$TRANSPORT" "vmess" "$tag"
   show_created_summary "$tag" "vmess" "$listen" "$port" "$uuid"
   warn "VMess 对系统时间敏感，建议保持 NTP/chrony 正常。"
 }
@@ -2387,7 +2416,7 @@ add_trojan() {
     }')"
 
   safe_write_inbound "$tag" "$json" || return
-  maybe_ufw_for_transport "$port" "$TRANSPORT" "trojan"
+  maybe_ufw_for_transport "$port" "$TRANSPORT" "trojan" "$tag"
   show_created_summary "$tag" "trojan" "$listen" "$port" "$password"
 }
 
@@ -2450,7 +2479,7 @@ add_shadowsocks() {
     }')"
 
   safe_write_inbound "$tag" "$json" || return
-  maybe_ufw_for_transport "$port" "native" "shadowsocks"
+  maybe_ufw_for_transport "$port" "native" "shadowsocks" "$tag"
   show_created_summary "$tag" "shadowsocks" "$listen" "$port" "$password"
   printf "  Method     : %s\n\n" "$method"
 }
@@ -2583,7 +2612,7 @@ add_hysteria2() {
     }')"
 
   safe_write_inbound "$tag" "$json" || return
-  maybe_ufw_for_transport "$port" "hysteria" "hysteria"
+  maybe_ufw_for_transport "$port" "hysteria" "hysteria" "$tag"
   show_created_summary "$tag" "hysteria2" "$listen" "$port" "$auth"
   printf "  SNI        : %s\n" "$domain"
   printf "  ALPN       : h3\n\n"
@@ -2646,7 +2675,7 @@ add_wireguard() {
     }')"
 
   safe_write_inbound "$tag" "$json" || return
-  maybe_ufw_for_transport "$port" "wireguard" "wireguard"
+  maybe_ufw_for_transport "$port" "wireguard" "wireguard" "$tag"
   show_created_summary "$tag" "wireguard" "$listen" "$port" ""
   printf "  Server PrivateKey: %s\n" "$server_priv"
   printf "  Server PublicKey : %s\n\n" "$server_pub"
@@ -2719,11 +2748,11 @@ add_tunnel() {
   safe_write_inbound "$tag" "$json" || return
   if [[ "$listen" != "127.0.0.1" && "$listen" != "::1" ]]; then
     case "$network" in
-      tcp) ufw_allow_if_active "$port" "tcp" ;;
-      udp) ufw_allow_if_active "$port" "udp" ;;
+      tcp) ufw_allow_if_active "$port" "tcp" "$tag" ;;
+      udp) ufw_allow_if_active "$port" "udp" "$tag" ;;
       tcp,udp)
-        ufw_allow_if_active "$port" "tcp"
-        ufw_allow_if_active "$port" "udp"
+        ufw_allow_if_active "$port" "tcp" "$tag"
+        ufw_allow_if_active "$port" "udp" "$tag"
         ;;
     esac
   fi
@@ -2848,49 +2877,283 @@ add_inbound_menu() {
   done
 }
 
-list_inbounds() {
-  ensure_layout
-  local found=0 f
-  printf "\n%-24s %-14s %-16s %-8s %-12s %-10s\n" "TAG" "PROTOCOL" "LISTEN" "PORT" "TRANSPORT" "SECURITY"
-  printf "%-24s %-14s %-16s %-8s %-12s %-10s\n" "------------------------" "--------------" "----------------" "--------" "------------" "----------"
+inbound_inventory_rows() {
+  local file source
   shopt -s nullglob
-  for f in "$CONF_DIR"/10_inbound_*.json; do
-    found=1
-    jq -r '
+  for file in "$CONF_DIR"/*.json; do
+    case "$file" in
+      "$CONF_DIR"/10_inbound_*.json) source="managed" ;;
+      *) source="external" ;;
+    esac
+    jq -r --arg source "$source" --arg file "$file" '
       .inbounds[]? |
+      (.settings.users // []) as $users |
       [
         (.tag // "-"),
         (.protocol // "-"),
         (.listen // "-"),
-        ((.port // "-")|tostring),
-        (.streamSettings.method // .streamSettings.network // "-"),
-        (.streamSettings.security // "-")
-      ] | @tsv' "$f" 2>/dev/null |
-    while IFS=$'\t' read -r tag proto listen port transport security; do
-      printf "%-24s %-14s %-16s %-8s %-12s %-10s\n" "$tag" "$proto" "$listen" "$port" "$transport" "$security"
-    done
+        ((.port // "-") | tostring),
+        (.streamSettings.method // .streamSettings.network //
+          (if .protocol == "shadowsocks" then "native" else "-" end)),
+        (.streamSettings.security // "-"),
+        (
+          if .protocol == "shadowsocks" then
+            if ($users | length) == 0 then "single/1"
+            else "multi/" + (($users | length) | tostring) end
+          elif .protocol == "socks" and (.settings.auth // "") == "noauth" then
+            "noauth"
+          elif ($users | length) > 0 then
+            "users/" + (($users | length) | tostring)
+          else "-" end
+        ),
+        $source,
+        $file
+      ] | @tsv
+    ' "$file" 2>/dev/null || true
   done
   shopt -u nullglob
-  (( found )) || echo "暂无由本脚本管理的入站。"
+}
+
+list_inbounds() {
+  ensure_layout
+  local index=0 tag protocol listen port transport security users source file
+  printf "\n%-5s %-22s %-13s %-18s %-7s %-11s %-9s %-10s %-9s\n" \
+    "INDEX" "TAG" "PROTOCOL" "LISTEN" "PORT" "TRANSPORT" "SECURITY" "USERS" "SOURCE"
+  printf "%-5s %-22s %-13s %-18s %-7s %-11s %-9s %-10s %-9s\n" \
+    "-----" "----------------------" "-------------" "------------------" "-------" \
+    "-----------" "---------" "----------" "---------"
+  while IFS=$'\t' read -r tag protocol listen port transport security users source file; do
+    [[ -n "$file" ]] || continue
+    index=$((index + 1))
+    printf "%-5s %-22s %-13s %-18s %-7s %-11s %-9s %-10s %-9s\n" \
+      "$index" "$tag" "$protocol" "$listen" "$port" "$transport" "$security" "$users" "$source"
+  done < <(inbound_inventory_rows)
+  (( index > 0 )) || echo "暂无 Xray 入站。"
+  echo
+  (( index > 0 )) && info "输入编号或 Tag 选择；external 表示迁移/外部配置，只读查看。"
+  return 0
+}
+
+find_any_inbound_file() {
+  local tag="$1" file
+  shopt -s nullglob
+  for file in "$CONF_DIR"/*.json; do
+    if jq -e --arg tag "$tag" '.inbounds[]? | select(.tag == $tag)' \
+       "$file" >/dev/null 2>&1; then
+      printf '%s' "$file"
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+resolve_inbound_selection() {
+  local selection="$1" index=0 tag protocol listen port transport security users source file
+  if find_any_inbound_file "$selection" >/dev/null 2>&1; then
+    printf '%s' "$selection"
+    return 0
+  fi
+  [[ "$selection" =~ ^[0-9]+$ ]] || return 1
+  while IFS=$'\t' read -r tag protocol listen port transport security users source file; do
+    [[ -n "$file" ]] || continue
+    index=$((index + 1))
+    if (( index == 10#$selection )); then
+      [[ "$tag" != "-" ]] || return 1
+      printf '%s' "$tag"
+      return 0
+    fi
+  done < <(inbound_inventory_rows)
+  return 1
+}
+
+choose_inbound_tag() {
+  local prompt="${1:-选择入站}" requested="${2:-}" scope="${3:-managed}"
+  local selection tag
+  if [[ -n "$requested" ]]; then
+    selection="$requested"
+  else
+    list_inbounds >&2
+    selection="$(ask_required "$prompt（编号或 Tag）")"
+  fi
+  tag="$(resolve_inbound_selection "$selection" || true)"
+  [[ -n "$tag" ]] || {
+    err "未找到入站：$selection"
+    return 1
+  }
+  if [[ "$scope" == "managed" ]] && ! find_inbound_file "$tag" >/dev/null 2>&1; then
+    err "入站 $tag 位于迁移/外部配置中，目前只支持查看和诊断。"
+    return 1
+  fi
+  printf '%s' "$tag"
+}
+
+inbound_networks() {
+  local file="$1" tag="$2"
+  jq -r --arg tag "$tag" '
+    first(.inbounds[]? | select(.tag == $tag)) |
+    if .protocol == "shadowsocks" then (.settings.network // "tcp,udp")
+    elif .protocol == "wireguard" or .protocol == "hysteria" or
+         (.streamSettings.method // "") == "mkcp" then "udp"
+    elif .protocol == "tunnel" then (.settings.allowedNetwork // "tcp")
+    elif .protocol == "socks" and (.settings.udp // false) then "tcp,udp"
+    else "tcp" end
+  ' "$file"
+}
+
+inbound_default_outbound() {
+  local file tag
+  if [[ -f "$ROUTING_FILE" ]]; then
+    tag="$(jq -r '.routing.rules[]? | select(.ruleTag == "manager-default") |
+      .outboundTag // empty' "$ROUTING_FILE" 2>/dev/null | head -n 1)"
+    if [[ -n "$tag" ]]; then
+      printf '%s' "$tag"
+      return 0
+    fi
+  fi
+  shopt -s nullglob
+  for file in "$CONF_DIR"/*.json; do
+    tag="$(jq -r '.outbounds[0].tag // empty' "$file" 2>/dev/null || true)"
+    if [[ -n "$tag" ]]; then
+      printf '%s' "$tag"
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  printf '%s' "-"
+}
+
+inbound_matching_routes() {
+  local tag="$1" file
+  shopt -s nullglob
+  for file in "$CONF_DIR"/*.json; do
+    jq -r --arg tag "$tag" '
+      .routing.rules[]? |
+      select((.inboundTag // []) | index($tag)) |
+      "\(.ruleTag // "unnamed") → \(.outboundTag // "-")"
+    ' "$file" 2>/dev/null || true
+  done
+  shopt -u nullglob
+}
+
+show_inbound_summary_file() {
+  local file="$1" tag="$2" inbound protocol listen port transport security
+  local count method credential source network routes default_outbound target sni
+  inbound="$(jq -ce --arg tag "$tag" '
+    first(.inbounds[]? | select(.tag == $tag))
+  ' "$file" 2>/dev/null || true)"
+  [[ -n "$inbound" && "$inbound" != "null" ]] || {
+    err "未找到入站配置：$tag"
+    return 1
+  }
+
+  protocol="$(jq -r '.protocol // "-"' <<<"$inbound")"
+  listen="$(jq -r '.listen // "-"' <<<"$inbound")"
+  port="$(jq -r '.port // "-"' <<<"$inbound")"
+  transport="$(jq -r '.streamSettings.method // .streamSettings.network // "native"' <<<"$inbound")"
+  security="$(jq -r '.streamSettings.security // "none"' <<<"$inbound")"
+  count="$(jq -r '(.settings.users // []) | length' <<<"$inbound")"
+  method="$(jq -r '.settings.method // ""' <<<"$inbound")"
+  network="$(inbound_networks "$file" "$tag")"
+  default_outbound="$(inbound_default_outbound)"
+  routes="$(inbound_matching_routes "$tag")"
+  case "$file" in
+    "$CONF_DIR"/10_inbound_*.json) source="Xray Manager" ;;
+    *) source="迁移/外部配置（只读）" ;;
+  esac
+
+  echo
+  printf "${C_BOLD}入站详情：%s${C_RESET}\n" "$tag"
+  printf '  协议        : %s\n' "$protocol"
+  printf '  监听地址    : %s\n' "$listen"
+  printf '  监听端口    : %s\n' "$port"
+  printf '  网络        : %s\n' "${network//,/ + }"
+  printf '  传输方式    : %s\n' "$transport"
+  printf '  传输安全    : %s\n' "$security"
+  [[ -z "$method" ]] || printf '  加密方式    : %s\n' "$method"
+
+  if [[ "$protocol" == "shadowsocks" ]]; then
+    credential="$(jq -r '.settings.password // ""' <<<"$inbound")"
+    if (( count == 0 )); then
+      printf '  用户模式    : 单用户\n'
+      printf '  用户数量    : 1\n'
+      printf '  客户端密码  : %s\n' "$(mask_credential "$credential")"
+    else
+      printf '  用户模式    : 多用户\n'
+      printf '  用户数量    : %s\n' "$count"
+      if [[ "$method" == 2022-* ]]; then
+        printf '  服务器主 PSK: %s（不是独立用户）\n' "$(mask_credential "$credential")"
+        printf '  密码格式    : ServerPassword:UserPassword\n'
+      else
+        printf '  顶层密码    : 多用户模式下不参与客户端认证\n'
+      fi
+    fi
+  elif (( count > 0 )); then
+    printf '  用户数量    : %s\n' "$count"
+  fi
+
+  case "$security" in
+    reality)
+      sni="$(jq -r '.streamSettings.realitySettings.serverNames[0] // "-"' <<<"$inbound")"
+      target="$(jq -r '.streamSettings.realitySettings.target //
+        .streamSettings.realitySettings.dest // "-"' <<<"$inbound")"
+      printf '  REALITY SNI : %s\n' "$sni"
+      printf '  回落目标    : %s\n' "$target"
+      ;;
+    tls)
+      sni="$(jq -r '.streamSettings.tlsSettings.serverName // "-"' <<<"$inbound")"
+      printf '  TLS SNI     : %s\n' "$sni"
+      ;;
+  esac
+
+  printf '  默认出口    : %s\n' "$default_outbound"
+  if [[ -n "$routes" ]]; then
+    while IFS= read -r target; do
+      printf '  关联路由    : %s\n' "$target"
+    done <<<"$routes"
+  else
+    printf '  关联路由    : 无入站专属规则\n'
+  fi
+
+  if [[ "$port" =~ ^[0-9]+$ ]]; then
+    if port_in_use "$port"; then
+      printf '  监听状态    : 正在监听\n'
+    else
+      printf '  监听状态    : 当前未检测到监听\n'
+    fi
+  fi
+  printf '  配置来源    : %s\n' "$source"
+  printf '  配置文件    : %s\n' "$file"
   echo
 }
 
 show_inbound_details() {
-  list_inbounds
-  local tag f
-  tag="$(ask_required "输入要查看的 Tag")"
-  f="$(find_inbound_file "$tag" || true)"
-  [[ -n "$f" ]] || { err "未找到。"; return; }
+  local tag file
+  tag="$(choose_inbound_tag "选择要查看的入站" "${1:-}" any)" || return 1
+  file="$(find_any_inbound_file "$tag" || true)"
+  [[ -n "$file" ]] || { err "未找到入站：$tag"; return 1; }
+  show_inbound_summary_file "$file" "$tag"
+}
+
+show_inbound_raw_config() {
+  local tag file
+  tag="$(choose_inbound_tag "选择要查看原始配置的入站" "${1:-}" any)" || return 1
+  file="$(find_any_inbound_file "$tag" || true)"
+  [[ -n "$file" ]] || { err "未找到入站：$tag"; return 1; }
+
   if confirm "显示完整敏感信息（UUID、密码、REALITY 私钥等）？"; then
     warn "请勿截图、录屏或把完整输出粘贴到公开位置。"
-    jq . "$f"
+    jq --arg tag "$tag" '{inbounds:[.inbounds[]? | select(.tag == $tag)]}' "$file"
   else
     info "已默认脱敏；如确需完整值，请重新进入并明确确认。"
-    jq '
+    jq --arg tag "$tag" '
       def sensitive_key:
         . == "id" or . == "password" or . == "privatekey" or
         . == "publickey" or . == "auth" or . == "shortids" or
-        . == "key";
+        . == "key" or . == "pass";
+      {inbounds:[.inbounds[]? | select(.tag == $tag)]} |
       walk(
         if type == "object" then
           with_entries(
@@ -2900,7 +3163,7 @@ show_inbound_details() {
           )
         else . end
       )
-    ' "$f"
+    ' "$file"
   fi
 }
 
@@ -3001,9 +3264,8 @@ edit_inbound_json() {
 
 edit_inbound() {
   need_xray || return
-  local tag file protocol port listen json c transport
-  list_inbounds
-  tag="$(ask_required "输入要编辑的 Tag")"
+  local tag file protocol port old_port listen json c transport
+  tag="$(choose_inbound_tag "选择要编辑的入站" "${1:-}")" || return 1
   file="$(find_inbound_file "$tag" || true)"
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
   protocol="$(jq -r '.inbounds[0].protocol // "-"' "$file")"
@@ -3017,13 +3279,13 @@ edit_inbound() {
   read -r -p "请选择: " c || true
   case "$c" in
     1)
-      port="$(jq -r '.inbounds[0].port // empty' "$file")"
-      [[ "$port" =~ ^[0-9]+$ ]] || {
+      old_port="$(jq -r '.inbounds[0].port // empty' "$file")"
+      [[ "$old_port" =~ ^[0-9]+$ ]] || {
         err "该入站没有普通数字端口，请使用高级 JSON 编辑。"
         return 1
       }
-      port="$(ask_port "新监听端口" "$port")"
-      if [[ "$port" == "$(jq -r '.inbounds[0].port' "$file")" ]]; then
+      port="$(ask_port "新监听端口" "$old_port")"
+      if [[ "$port" == "$old_port" ]]; then
         info "端口没有变化。"
         return
       fi
@@ -3033,7 +3295,8 @@ edit_inbound() {
       ' "$file")"
       if write_inbound_candidate "$file" "$json" "已更新入站端口：$tag"; then
         transport="$(jq -r '.inbounds[0].streamSettings.method // "native"' "$file")"
-        maybe_ufw_for_transport "$port" "$transport" "$protocol"
+        maybe_ufw_for_transport "$port" "$transport" "$protocol" "$tag"
+        remove_managed_ufw_rules "$tag" "$old_port"
       fi
       ;;
     2)
@@ -3080,10 +3343,23 @@ list_inbound_users_file() {
   local file="$1" reveal="${2:-0}" protocol count i email credential flow method
   protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
   count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
+
+  if [[ "$protocol" == "shadowsocks" ]] && (( count > 0 )); then
+    method="$(jq -r '.inbounds[0].settings.method // "-"' "$file")"
+    if [[ "$method" == 2022-* ]]; then
+      credential="$(jq -r '.inbounds[0].settings.password // empty' "$file")"
+      (( reveal == 1 )) || credential="$(mask_credential "$credential")"
+      printf '\n服务器主 PSK : %s（不是用户，不能单独生成多用户链接）\n' "$credential"
+      printf '客户端密码格式: ServerPassword:UserPassword\n'
+    else
+      printf '\n多用户模式：顶层默认密码不会用于客户端认证。\n'
+    fi
+  fi
+
   printf "\n%-6s %-28s %-28s %-22s\n" "INDEX" "NAME / EMAIL" "CREDENTIAL" "FLOW / METHOD"
   printf "%-6s %-28s %-28s %-22s\n" "------" "----------------------------" "----------------------------" "----------------------"
 
-  if [[ "$protocol" == "shadowsocks" ]]; then
+  if [[ "$protocol" == "shadowsocks" ]] && (( count == 0 )); then
     email="$(jq -r '.inbounds[0].settings.email // "default"' "$file")"
     credential="$(jq -r '.inbounds[0].settings.password // empty' "$file")"
     method="$(jq -r '.inbounds[0].settings.method // "-"' "$file")"
@@ -3112,8 +3388,7 @@ list_inbound_users_file() {
 
 list_inbound_users() {
   local tag file protocol reveal=0
-  list_inbounds
-  tag="$(ask_required "输入入站 Tag")"
+  tag="$(choose_inbound_tag "选择要查看用户的入站" "${1:-}")" || return 1
   file="$(find_inbound_file "$tag" || true)"
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
   protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
@@ -3147,8 +3422,7 @@ inbound_user_label_exists() {
 add_inbound_user() {
   need_xray || return
   local tag file protocol count label credential flow method json username
-  list_inbounds
-  tag="$(ask_required "输入入站 Tag")"
+  tag="$(choose_inbound_tag "选择要添加用户的入站" "${1:-}")" || return 1
   file="$(find_inbound_file "$tag" || true)"
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
   protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
@@ -3157,6 +3431,19 @@ add_inbound_user() {
     return 1
   }
   count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
+
+  if [[ "$protocol" == "shadowsocks" ]]; then
+    method="$(jq -r '.inbounds[0].settings.method // empty' "$file")"
+    if [[ "$method" == 2022-* && "$method" != 2022-blake3-aes-128-gcm &&
+          "$method" != 2022-blake3-aes-256-gcm ]]; then
+      err "$method 当前只支持单用户；Xray 的 SS2022 多用户仅支持 AES-128/AES-256。"
+      return 1
+    fi
+    if (( count == 0 )); then
+      warn "添加第一个用户会将 Shadowsocks 从单用户切换到多用户，原单用户链接将失效。"
+      confirm "确认切换到多用户模式？" || return 1
+    fi
+  fi
 
   case "$protocol" in
     vless|vmess|trojan|hysteria|shadowsocks)
@@ -3200,7 +3487,6 @@ add_inbound_user() {
       ' "$file")"
       ;;
     shadowsocks)
-      method="$(jq -r '.inbounds[0].settings.method // empty' "$file")"
       credential="$(ask_default "用户密码/PSK" "$(generate_shadowsocks_user_secret "$method")")"
       if [[ "$method" == 2022-* ]]; then
         json="$(jq --arg password "$credential" --arg email "$label" '
@@ -3235,21 +3521,33 @@ add_inbound_user() {
 
 edit_inbound_user() {
   need_xray || return
-  local tag file protocol count index array_index c current value json
-  list_inbounds
-  tag="$(ask_required "输入入站 Tag")"
+  local tag file protocol count index array_index c current value json method
+  tag="$(choose_inbound_tag "选择要编辑用户的入站" "${1:-}")" || return 1
   file="$(find_inbound_file "$tag" || true)"
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
   protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
   inbound_supports_user_management "$protocol" || { err "$protocol 不支持此用户管理器。"; return 1; }
   count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
   list_inbound_users_file "$file" 0
+  if [[ "$protocol" == "shadowsocks" ]] && (( count > 0 )); then
+    method="$(jq -r '.inbounds[0].settings.method // empty' "$file")"
+    [[ "$method" != 2022-* ]] || info "输入 0 可单独修改服务器主 PSK；它不是可分享用户。"
+  fi
   index="$(ask_default "用户 INDEX" "1")"
   [[ "$index" =~ ^[0-9]+$ ]] || { err "INDEX 必须是数字。"; return 1; }
 
   if [[ "$protocol" == "shadowsocks" && "$index" == "0" ]]; then
-    echo "1) 修改默认密码/PSK"
-    echo "2) 修改默认 email"
+    method="$(jq -r '.inbounds[0].settings.method // empty' "$file")"
+    if (( count > 0 )); then
+      [[ "$method" == 2022-* ]] || {
+        err "旧版 Shadowsocks 多用户模式不使用顶层默认密码。"
+        return 1
+      }
+      echo "1) 修改服务器主 PSK（将使全部现有链接失效）"
+    else
+      echo "1) 修改默认密码/PSK"
+      echo "2) 修改默认 email"
+    fi
     read -r -p "请选择: " c || true
     case "$c" in
       1)
@@ -3261,6 +3559,7 @@ edit_inbound_user() {
         json="$(jq --arg value "$value" '.inbounds[0].settings.password = $value' "$file")"
         ;;
       2)
+        (( count == 0 )) || { err "多用户模式没有独立的默认用户 email。"; return 1; }
         current="$(jq -r '.inbounds[0].settings.email // "default"' "$file")"
         value="$(ask_default "新 email" "$current")"
         json="$(jq --arg value "$value" '.inbounds[0].settings.email = $value' "$file")"
@@ -3334,8 +3633,7 @@ edit_inbound_user() {
 delete_inbound_user() {
   need_xray || return
   local tag file protocol count index array_index json
-  list_inbounds
-  tag="$(ask_required "输入入站 Tag")"
+  tag="$(choose_inbound_tag "选择要删除用户的入站" "${1:-}")" || return 1
   file="$(find_inbound_file "$tag" || true)"
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
   protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
@@ -3353,6 +3651,10 @@ delete_inbound_user() {
     err "拒绝删除最后一个用户；请添加替代用户，或删除整个入站。"
     return 1
   fi
+  if [[ "$protocol" == "shadowsocks" ]] && (( count == 1 )); then
+    warn "删除最后一个用户会恢复 Shadowsocks 单用户模式，现有多用户链接将失效。"
+    confirm "确认恢复单用户模式？" || return 1
+  fi
   array_index=$((index - 1))
   json="$(jq --argjson i "$array_index" '
     .inbounds[0].settings.users |= del(.[$i]) |
@@ -3365,9 +3667,11 @@ delete_inbound_user() {
 }
 
 inbound_user_management_menu() {
+  local selected_tag="${1:-}"
   while true; do
     clear || true
     echo "========== 入站用户管理 =========="
+    [[ -z "$selected_tag" ]] || echo "当前入站：$selected_tag"
     echo "1) 查看用户"
     echo "2) 添加用户"
     echo "3) 编辑用户"
@@ -3376,10 +3680,10 @@ inbound_user_management_menu() {
     local c
     read -r -p "请选择: " c || true
     case "$c" in
-      1) list_inbound_users; pause ;;
-      2) add_inbound_user; pause ;;
-      3) edit_inbound_user; pause ;;
-      4) delete_inbound_user; pause ;;
+      1) list_inbound_users "$selected_tag"; pause ;;
+      2) add_inbound_user "$selected_tag"; pause ;;
+      3) edit_inbound_user "$selected_tag"; pause ;;
+      4) delete_inbound_user "$selected_tag"; pause ;;
       0) return ;;
     esac
   done
@@ -3494,7 +3798,7 @@ SHARE_LINK=""
 build_share_link() {
   local file="$1" user_index="$2" server_host="$3" remark="$4"
   local protocol port host index id password auth flow method master user_password user_method
-  local tls sni path transport_host vmess_json username
+  local tls sni path transport_host vmess_json username user_count
   protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
   port="$(jq -r '.inbounds[0].port // empty' "$file")"
   [[ "$port" =~ ^[0-9]+$ ]] || { err "该入站没有可分享的普通端口。"; return 1; }
@@ -3549,7 +3853,12 @@ build_share_link() {
     shadowsocks)
       method="$(jq -r '.inbounds[0].settings.method // empty' "$file")"
       master="$(jq -r '.inbounds[0].settings.password // empty' "$file")"
+      user_count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
       if (( user_index == 0 )); then
+        (( user_count == 0 )) || {
+          err "多用户模式下服务器主密码不是独立用户，不能单独生成链接。"
+          return 1
+        }
         password="$master"
       else
         user_password="$(jq -r --argjson i "$index" '.inbounds[0].settings.users[$i].password // empty' "$file")"
@@ -3597,8 +3906,7 @@ ensure_qrencode() {
 
 show_inbound_share_link() {
   local tag file protocol count user_index listen server_host remark default_index
-  list_inbounds
-  tag="$(ask_required "输入要分享的入站 Tag")"
+  tag="$(choose_inbound_tag "选择要分享的入站" "${1:-}")" || return 1
   file="$(find_inbound_file "$tag" || true)"
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
   protocol="$(jq -r '.inbounds[0].protocol // empty' "$file")"
@@ -3609,11 +3917,20 @@ show_inbound_share_link() {
   list_inbound_users_file "$file" 0
   count="$(jq -r '(.inbounds[0].settings.users // []) | length' "$file")"
   default_index=1
-  [[ "$protocol" == "shadowsocks" ]] && default_index=0
+  if [[ "$protocol" == "shadowsocks" ]] && (( count == 0 )); then
+    default_index=0
+  fi
   user_index="$(ask_default "要分享的用户 INDEX" "$default_index")"
   [[ "$user_index" =~ ^[0-9]+$ ]] || { err "INDEX 必须是数字。"; return 1; }
   if [[ "$protocol" == "shadowsocks" ]]; then
-    (( user_index >= 0 && user_index <= count )) || { err "用户 INDEX 不存在。"; return 1; }
+    if (( count == 0 )); then
+      (( user_index == 0 )) || { err "单用户 Shadowsocks 请选择 INDEX 0。"; return 1; }
+    else
+      (( user_index >= 1 && user_index <= count )) || {
+        err "多用户 Shadowsocks 请选择实际用户 INDEX 1-$count；主 PSK 不是用户。"
+        return 1
+      }
+    fi
   else
     (( user_index >= 1 && user_index <= count )) || { err "用户 INDEX 不存在。"; return 1; }
   fi
@@ -3644,15 +3961,11 @@ show_inbound_share_link() {
 
 delete_inbound() {
   need_xray || return
-  local requested="${1:-}" tag file backup tmp
-  if [[ -n "$requested" ]]; then
-    tag="$requested"
-  else
-    list_inbounds
-    tag="$(ask_required "输入要删除的 Tag")"
-  fi
+  local requested="${1:-}" tag file backup tmp old_port
+  tag="$(choose_inbound_tag "选择要删除的入站" "$requested")" || return 1
   file="$(find_inbound_file "$tag" || true)"
   [[ -n "$file" ]] || { err "未找到 Tag：$tag"; return; }
+  old_port="$(jq -r '.inbounds[0].port // empty' "$file")"
 
   confirm "确认删除 $tag？" || return
   backup="$(backup_now)"
@@ -3664,6 +3977,7 @@ delete_inbound() {
     rm -f "$tmp"
     ok "已删除：$tag"
     info "备份：$backup"
+    [[ "$old_port" =~ ^[0-9]+$ ]] && remove_managed_ufw_rules "$tag" "$old_port"
     if ! remove_managed_route_tag "forward-$(sanitize_tag "$tag")"; then
       warn "入站已删除，但对应的自动路由清理失败，请在路由菜单中检查。"
     fi
@@ -3672,6 +3986,234 @@ delete_inbound() {
     mv "$tmp" "$file"
     service_restart || true
   fi
+}
+
+validate_shadowsocks_2022_secret() {
+  local method="$1" secret="$2" expected decoded
+  case "$method" in
+    2022-blake3-aes-128-gcm) expected=16 ;;
+    2022-blake3-aes-256-gcm|2022-blake3-chacha20-poly1305) expected=32 ;;
+    *) return 0 ;;
+  esac
+  decoded="$(printf '%s' "$secret" | base64 --decode 2>/dev/null |
+    wc -c | tr -d '[:space:]')" || return 1
+  [[ "$decoded" == "$expected" ]]
+}
+
+diagnose_inbound() {
+  local tag file inbound protocol port listen method count credential network status item
+  local failures=0 warnings=0 index sync cert outbound
+  tag="$(choose_inbound_tag "选择要诊断的入站" "${1:-}" any)" || return 1
+  file="$(find_any_inbound_file "$tag" || true)"
+  [[ -n "$file" ]] || { err "未找到入站：$tag"; return 1; }
+  inbound="$(jq -ce --arg tag "$tag" 'first(.inbounds[]? | select(.tag == $tag))' "$file")"
+  protocol="$(jq -r '.protocol // ""' <<<"$inbound")"
+  port="$(jq -r '.port // ""' <<<"$inbound")"
+  listen="$(jq -r '.listen // ""' <<<"$inbound")"
+  network="$(inbound_networks "$file" "$tag")"
+
+  echo
+  printf "${C_BOLD}入站诊断：%s${C_RESET}\n" "$tag"
+  if test_config >/dev/null 2>&1; then
+    ok "完整 Xray 配置测试通过。"
+  else
+    err "完整 Xray 配置测试失败。"
+    failures=$((failures + 1))
+  fi
+
+  case "$INIT_SYS" in
+    systemd)
+      if systemctl is-active --quiet xray 2>/dev/null; then
+        ok "Xray systemd 服务正在运行。"
+      else
+        warn "Xray systemd 服务未处于 active 状态。"
+        warnings=$((warnings + 1))
+      fi
+      ;;
+    openrc)
+      if rc-service xray status >/dev/null 2>&1; then
+        ok "Xray OpenRC 服务正在运行。"
+      else
+        warn "Xray OpenRC 服务未处于运行状态。"
+        warnings=$((warnings + 1))
+      fi
+      ;;
+  esac
+
+  if [[ "$port" =~ ^[0-9]+$ ]]; then
+    if port_in_use "$port"; then
+      ok "监听端口 $port 已被监听。"
+    else
+      warn "监听端口 $port 当前未检测到监听。"
+      warnings=$((warnings + 1))
+    fi
+  fi
+
+  if [[ "$protocol" == "shadowsocks" ]]; then
+    method="$(jq -r '.settings.method // ""' <<<"$inbound")"
+    count="$(jq -r '(.settings.users // []) | length' <<<"$inbound")"
+    if [[ "$method" == 2022-* ]]; then
+      credential="$(jq -r '.settings.password // ""' <<<"$inbound")"
+      if validate_shadowsocks_2022_secret "$method" "$credential"; then
+        ok "SS2022 服务器 PSK 的 Base64 和密钥长度正常。"
+      else
+        err "SS2022 服务器 PSK 不是与 $method 匹配的有效 Base64 密钥。"
+        failures=$((failures + 1))
+      fi
+      if (( count > 0 )) && [[ "$method" != 2022-blake3-aes-128-gcm &&
+                                "$method" != 2022-blake3-aes-256-gcm ]]; then
+        err "$method 不支持 Xray SS2022 多用户模式。"
+        failures=$((failures + 1))
+      fi
+      for ((index = 0; index < count; index++)); do
+        credential="$(jq -r --argjson index "$index" '
+          .settings.users[$index].password // ""' <<<"$inbound")"
+        if ! validate_shadowsocks_2022_secret "$method" "$credential"; then
+          err "SS2022 用户 $((index + 1)) 的 PSK 长度或 Base64 编码无效。"
+          failures=$((failures + 1))
+        fi
+      done
+    fi
+  fi
+
+  if [[ "$protocol" == "vmess" ||
+        ( "$protocol" == "shadowsocks" && "${method:-}" == 2022-* ) ]]; then
+    if command -v timedatectl >/dev/null 2>&1; then
+      sync="$(timedatectl show -p NTPSynchronized --value 2>/dev/null || true)"
+      case "$sync" in
+        yes) ok "系统时钟已经同步。" ;;
+        no)
+          warn "系统时钟未同步，可能导致 $protocol 握手或时间戳校验失败。"
+          warnings=$((warnings + 1))
+          ;;
+        *) info "当前环境无法读取 NTP 同步状态。" ;;
+      esac
+    fi
+  fi
+
+  if [[ "$protocol" == "socks" || "$protocol" == "http" ]] &&
+     [[ "$listen" != "127.0.0.1" && "$listen" != "::1" ]]; then
+    if [[ "$protocol" == "socks" &&
+          "$(jq -r '.settings.auth // ""' <<<"$inbound")" == "noauth" ]]; then
+      err "无认证 SOCKS 入站暴露在非本机地址。"
+      failures=$((failures + 1))
+    else
+      warn "$protocol 入站暴露在非本机地址，请确认来源防火墙限制。"
+      warnings=$((warnings + 1))
+    fi
+  fi
+
+  while IFS= read -r outbound; do
+    [[ -n "$outbound" ]] || continue
+    if outbound_tag_exists "$outbound"; then
+      ok "关联路由引用的出站存在：$outbound"
+    else
+      err "关联路由引用了不存在的出站：$outbound"
+      failures=$((failures + 1))
+    fi
+  done < <(
+    for item in "$CONF_DIR"/*.json; do
+      [[ -f "$item" ]] || continue
+      jq -r --arg tag "$tag" '
+        .routing.rules[]? |
+        select((.inboundTag // []) | index($tag)) |
+        .outboundTag // empty
+      ' "$item" 2>/dev/null || true
+    done
+  )
+
+  while IFS= read -r cert; do
+    [[ -n "$cert" ]] || continue
+    if [[ ! -r "$cert" ]]; then
+      err "TLS 证书不可读取：$cert"
+      failures=$((failures + 1))
+    elif openssl x509 -checkend 604800 -noout -in "$cert" >/dev/null 2>&1; then
+      ok "TLS 证书有效期超过 7 天：$cert"
+    else
+      warn "TLS 证书已过期、7 天内到期或无法解析：$cert"
+      warnings=$((warnings + 1))
+    fi
+  done < <(jq -r '
+    .streamSettings.tlsSettings.certificates[]?.certificateFile // empty
+  ' <<<"$inbound")
+
+  if command -v ufw >/dev/null 2>&1 && [[ "$port" =~ ^[0-9]+$ ]]; then
+    status="$(ufw status 2>/dev/null || true)"
+    if [[ "$status" == *"Status: active"* && "$listen" != "127.0.0.1" && "$listen" != "::1" ]]; then
+      for item in tcp udp; do
+        [[ ",$network," == *",$item,"* ]] || continue
+        if printf '%s\n' "$status" | grep -Eq "(^|[[:space:]])${port}/${item}([[:space:]]|$)"; then
+          ok "UFW 已放行 $port/$item。"
+        else
+          warn "UFW 未发现 $port/$item 的放行规则。"
+          warnings=$((warnings + 1))
+        fi
+      done
+    fi
+  fi
+
+  printf '\n诊断结果：%s 项错误，%s 项警告。\n' "$failures" "$warnings"
+  (( failures == 0 ))
+}
+
+show_inbound_routes() {
+  local tag routes
+  tag="$(choose_inbound_tag "选择要查看路由的入站" "${1:-}" any)" || return 1
+  routes="$(inbound_matching_routes "$tag")"
+  echo
+  printf '入站 Tag：%s\n' "$tag"
+  printf '默认出口：%s\n' "$(inbound_default_outbound)"
+  if [[ -n "$routes" ]]; then
+    printf '关联路由：\n%s\n' "$routes"
+  else
+    echo "关联路由：没有专门匹配此入站的规则。"
+  fi
+}
+
+inbound_detail_menu() {
+  local tag file choice managed
+  tag="$(choose_inbound_tag "选择要管理的入站" "${1:-}" any)" || return 1
+
+  while true; do
+    file="$(find_any_inbound_file "$tag" || true)"
+    [[ -n "$file" ]] || return 0
+    managed=0
+    [[ "$file" == "$CONF_DIR/"10_inbound_*.json ]] && managed=1
+    clear || true
+    show_inbound_summary_file "$file" "$tag"
+    if (( managed )); then
+      echo "1) 查看用户"
+      echo "2) 分享链接与二维码"
+      echo "3) 编辑入站"
+      echo "4) 用户管理"
+    else
+      echo "此入站来自迁移/外部配置，只支持安全查看和诊断。"
+    fi
+    echo "5) 查看关联路由"
+    echo "6) 运行入站诊断"
+    echo "7) 查看原始 JSON"
+    (( managed == 0 )) || echo "8) 删除入站"
+    echo "0) 返回"
+    read -r -p "请选择: " choice || true
+    case "$choice" in
+      1) (( managed )) && list_inbound_users "$tag"; pause ;;
+      2) (( managed )) && show_inbound_share_link "$tag"; pause ;;
+      3) (( managed )) && edit_inbound "$tag"; pause ;;
+      4) (( managed )) && inbound_user_management_menu "$tag" ;;
+      5) show_inbound_routes "$tag"; pause ;;
+      6) diagnose_inbound "$tag" || true; pause ;;
+      7) show_inbound_raw_config "$tag"; pause ;;
+      8)
+        if (( managed )) && delete_inbound "$tag"; then
+          pause
+          return 0
+        fi
+        pause
+        ;;
+      0) return 0 ;;
+      *) warn "无效选择。"; pause ;;
+    esac
+  done
 }
 
 csv_to_json_array() {
@@ -4667,10 +5209,14 @@ install_ufw() {
 }
 
 ufw_allow_if_active() {
-  local port="$1" proto="${2:-tcp}"
+  local port="$1" proto="${2:-tcp}" tag="${3:-}"
   command -v ufw >/dev/null 2>&1 || return 0
   ufw status 2>/dev/null | grep -q '^Status: active' || return 0
-  ufw allow "$port/$proto" >/dev/null 2>&1 || true
+  if [[ -n "$tag" ]]; then
+    managed_ufw_allow "$port" "$proto" "$tag"
+  else
+    ufw allow "$port/$proto" >/dev/null 2>&1 || true
+  fi
 }
 
 ufw_safe_enable() {
@@ -4947,12 +5493,14 @@ inbound_management_menu() {
     clear || true
     echo "========== 入站管理 =========="
     echo "1) 添加入站协议"
-    echo "2) 查看入站列表"
-    echo "3) 查看某入站完整配置"
+    echo "2) 查看入站列表（支持编号选择）"
+    echo "3) 入站详情 / 快捷管理"
     echo "4) 编辑入站"
     echo "5) 用户管理"
     echo "6) 分享链接与二维码"
     echo "7) 删除入站"
+    echo "8) 查看入站原始 JSON"
+    echo "9) 入站健康诊断"
     echo "配置目录：$CONF_DIR"
     echo "0) 返回"
     local c
@@ -4960,11 +5508,13 @@ inbound_management_menu() {
     case "$c" in
       1) add_inbound_menu ;;
       2) list_inbounds; pause ;;
-      3) show_inbound_details; pause ;;
+      3) inbound_detail_menu ;;
       4) edit_inbound; pause ;;
       5) inbound_user_management_menu ;;
       6) show_inbound_share_link; pause ;;
       7) delete_inbound; pause ;;
+      8) show_inbound_raw_config; pause ;;
+      9) diagnose_inbound || true; pause ;;
       0) return ;;
     esac
   done
