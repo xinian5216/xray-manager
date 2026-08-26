@@ -18,7 +18,7 @@ Use the returned implementation files, tests, and docs as the initial change sco
 - `lib/xray-manager-core.sh`: interactive runtime and Xray configuration/service management.
 - `install.sh`, `cloudflare-install.sh`, `offline-install.sh`: GitHub, Worker/R2, and offline bootstrap paths.
 - `worker/`: authenticated delivery of the fixed private R2 objects.
-- `scripts/select-xray-release.sh`, `scripts/select-geodata-release.sh`, and `publish-r2.yml`: delayed Xray/GeoData selection and packaging policy.
+- `scripts/select-xray-release.sh`, `scripts/select-geodata-release.sh`, `scripts/verify-xray-asset.sh`, and `publish-r2.yml`: delayed Xray/GeoData selection, upstream digest verification, and packaging policy.
 - `tests/`: executable regression coverage. Core tests source the Core and override paths/service functions.
 
 Keep Core as a single distributable file unless the same change also updates all installers, updater paths, offline packaging, checksums, and tests to install modules atomically.

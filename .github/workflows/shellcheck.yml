@@ -14,7 +14,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Bash syntax
         run: |
           bash -n xray-manager.sh
@@ -25,6 +25,7 @@ jobs:
           bash -n scripts/refresh-checksums.sh
           bash -n scripts/select-geodata-release.sh
           bash -n scripts/select-xray-release.sh
+          bash -n scripts/verify-xray-asset.sh
           bash -n scripts/maintainer-map.sh
           bash -n tests/maintainer-map.sh
           bash -n tests/bootstrap-install.sh
@@ -41,6 +42,7 @@ jobs:
           bash -n tests/atomic-release.sh
           bash -n tests/geodata-release-delay.sh
           bash -n tests/xray-release-delay.sh
+          bash -n tests/xray-asset-integrity.sh
       - name: Verify project version
         run: |
           test "$(tr -d '[:space:]' < VERSION)" = "$(sed -n 's/^PROJECT_VERSION="\(.*\)"/\1/p' xray-manager.sh | head -n1)"
@@ -54,7 +56,7 @@ jobs:
       - name: Install ShellCheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: ShellCheck launchers
-        run: shellcheck -S warning xray-manager.sh install.sh offline-install.sh cloudflare-install.sh scripts/refresh-checksums.sh scripts/select-geodata-release.sh scripts/select-xray-release.sh
+        run: shellcheck -S warning xray-manager.sh install.sh offline-install.sh cloudflare-install.sh scripts/refresh-checksums.sh scripts/select-geodata-release.sh scripts/select-xray-release.sh scripts/verify-xray-asset.sh
       - name: ShellCheck core
         run: |
           shellcheck -S warning scripts/maintainer-map.sh tests/maintainer-map.sh
@@ -74,6 +76,7 @@ jobs:
           shellcheck -e SC2034 -S warning tests/atomic-release.sh
           shellcheck -S warning tests/geodata-release-delay.sh
           shellcheck -S warning tests/xray-release-delay.sh
+          shellcheck -S warning tests/xray-asset-integrity.sh
       - name: Offline import test
         run: bash tests/offline-install.sh
       - name: Bootstrap dependency test
@@ -94,6 +97,8 @@ jobs:
         run: bash tests/manager-menu-update.sh
       - name: Xray release delay policy test
         run: bash tests/xray-release-delay.sh
+      - name: Xray asset integrity test
+        run: bash tests/xray-asset-integrity.sh
       - name: GeoData release delay policy test
         run: bash tests/geodata-release-delay.sh
       - name: Inbound management regression test
@@ -119,8 +124,8 @@ jobs:
       run:
         working-directory: worker
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22"
           cache: npm

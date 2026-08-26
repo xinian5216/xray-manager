@@ -16,6 +16,9 @@ beforeEach(async () => {
     env.BUNDLES.put("releases/latest-amd64.sha256", "deadbeef\n", {
       httpMetadata: { contentType: "text/plain" },
     }),
+    env.BUNDLES.put("releases/manifest.json", '{"format":1}\n', {
+      httpMetadata: { contentType: "application/json" },
+    }),
   ]);
 });
 
@@ -69,6 +72,15 @@ describe("xray-manager download Worker", () => {
     });
 
     expect(response.status).toBe(404);
+  });
+
+  it("serves the overwrite-in-place publish manifest", async () => {
+    const response = await fetchWorker("/releases/manifest.json", {
+      headers: { authorization: "Bearer test-install-token" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"format":1');
   });
 
   it("returns 405 and an Allow header for unsupported methods", async () => {

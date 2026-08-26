@@ -27,6 +27,11 @@ ipv6="$(bash "$MAP" "IPv6 下载")"
 grep -Fq '[network-ipv6]' <<<"$ipv6"
 grep -Fq 'tests/cloudflare-core-download.sh' <<<"$ipv6"
 
+integrity="$(bash "$MAP" "digest")"
+grep -Fq '[xray-geodata]' <<<"$integrity"
+grep -Fq 'scripts/verify-xray-asset.sh' <<<"$integrity"
+grep -Fq 'tests/xray-asset-integrity.sh' <<<"$integrity"
+
 if bash "$MAP" "definitely-unknown-area" >/dev/null 2>&1; then
   echo "unknown query unexpectedly succeeded" >&2
   exit 1

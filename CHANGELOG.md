@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## v1.8.4 / Core v1.8.4 - 2026-08-26
+
+### Security
+- R2 发布工作流在打包前用 GitHub Release API `digest`（`sha256:<64hex>`）校验 Xray ZIP；缺失或异常时回退到官方 `.dgst` 的 `SHA2-256=`，仍失败则中止且不覆盖 R2。
+- 拒绝错误域名、错误 Tag、错误架构、重复资产、格式错误或互相冲突的摘要，不再静默降级为“只测试 ZIP”。
+- 离线包内写入 `release-manifest.json`（Manager / Xray / GeoData 版本与各架构 Xray ZIP 摘要）；R2 另存覆盖写入的 `releases/manifest.json`（含包 SHA256 与构建时间）。
+- Cloudflare 安装与自更新在 sidecar 摘要、发布清单或 VERSION 任一不匹配时 fail closed。
+- acme.sh 改为下载固定 Commit 并校验脚本 SHA256 后再执行；无法校验时要求预装，不再 `curl | sh`。
+- `actions/checkout` 与 `actions/setup-node` 固定到完整 Commit SHA。
+
+### Tests
+- 新增 `tests/xray-asset-integrity.sh`，覆盖 API digest、`.dgst` 回退、哈希不匹配、摘要缺失/畸形、重复资产、冲突 dgst、非预期域名、错误 Tag/架构，以及 list-API 不可用时的延迟发布回退。
+
+### Changed
+- Worker 允许鉴权读取 `releases/manifest.json`；R2 固定对象从五个增至六个，仍原位覆盖。
+
 ## v1.8.3 / Core v1.8.3 - 2026-08-26
 
 ### Changed

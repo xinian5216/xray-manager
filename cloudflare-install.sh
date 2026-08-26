@@ -77,6 +77,10 @@ curl --config "$CURL_CONFIG" \
   "$BASE_URL/releases/$CHECKSUM" \
   --output "$WORK_DIR/$CHECKSUM"
 
+curl --config "$CURL_CONFIG" \
+  "$BASE_URL/releases/manifest.json" \
+  --output "$WORK_DIR/manifest.json"
+
 EXPECTED="$(tr -d '[:space:]' < "$WORK_DIR/$CHECKSUM")"
 
 if command -v sha256sum >/dev/null 2>&1; then
@@ -93,15 +97,45 @@ if [[ "$EXPECTED" != "$ACTUAL" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$WORK_DIR/manifest.json" ]]; then
+  echo "未能下载发布清单，拒绝安装"
+  exit 1
+fi
+if ! grep -Eq "\"file\"[[:space:]]*:[[:space:]]*\"${PACKAGE}\"" "$WORK_DIR/manifest.json"; then
+  echo "发布清单缺少当前架构安装包，拒绝安装"
+  exit 1
+fi
+if ! grep -Eq "\"sha256\"[[:space:]]*:[[:space:]]*\"${ACTUAL}\"" "$WORK_DIR/manifest.json"; then
+  echo "发布清单与安装包摘要不一致，拒绝安装"
+  exit 1
+fi
+
 mkdir -p "$WORK_DIR/extracted"
 tar -xzf "$WORK_DIR/$PACKAGE" -C "$WORK_DIR/extracted"
 
 INSTALLER="$WORK_DIR/extracted/xray-manager/offline-install.sh"
 CORE="$WORK_DIR/extracted/xray-manager/lib/xray-manager-core.sh"
 BUNDLE_DIR="$WORK_DIR/extracted/payload"
+MANIFEST="$WORK_DIR/extracted/xray-manager/release-manifest.json"
+MANAGER_VERSION_FILE="$WORK_DIR/extracted/xray-manager/VERSION"
 
 if [[ ! -f "$INSTALLER" || ! -f "$CORE" ]]; then
   echo "离线安装包中缺少 offline-install.sh 或 Core"
+  exit 1
+fi
+
+if [[ ! -f "$MANIFEST" || ! -f "$MANAGER_VERSION_FILE" ]]; then
+  echo "安装包缺少发布清单或 VERSION，拒绝安装"
+  exit 1
+fi
+
+MANAGER_VERSION="$(tr -d '[:space:]' < "$MANAGER_VERSION_FILE")"
+if [[ ! "$MANAGER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "安装包 VERSION 无效"
+  exit 1
+fi
+if ! grep -Eq "\"manager_version\"[[:space:]]*:[[:space:]]*\"${MANAGER_VERSION}\"" "$MANIFEST"; then
+  echo "发布清单与 VERSION 不一致，拒绝安装"
   exit 1
 fi
 

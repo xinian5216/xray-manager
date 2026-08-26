@@ -19,7 +19,9 @@ on:
       - "lib/**"
       - "scripts/select-geodata-release.sh"
       - "scripts/select-xray-release.sh"
+      - "scripts/verify-xray-asset.sh"
       - "tests/geodata-release-delay.sh"
+      - "tests/xray-asset-integrity.sh"
       - "tests/smoke-configs.sh"
       - "tests/wireguard-management.sh"
       - ".github/workflows/publish-r2.yml"
@@ -50,7 +52,7 @@ jobs:
 
     steps:
       - name: Checkout private repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Validate configuration
         shell: bash
@@ -81,8 +83,11 @@ jobs:
           bash -n cloudflare-install.sh
           bash -n lib/xray-manager-core.sh
           bash -n scripts/select-geodata-release.sh
+          bash -n scripts/select-xray-release.sh
+          bash -n scripts/verify-xray-asset.sh
           bash -n tests/wireguard-management.sh
           bash tests/geodata-release-delay.sh
+          bash tests/xray-asset-integrity.sh
           bash tests/wireguard-management.sh
 
           sha256sum -c SHA256SUMS
@@ -105,6 +110,7 @@ jobs:
             "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=100" \
             -o downloads/xray-releases.json
           then
+            echo "Xray release list unavailable; falling back to pinned version $PINNED_XRAY_VERSION"
             printf '[]\n' > downloads/xray-releases.json
           fi
           XRAY_VERSION="$(bash scripts/select-xray-release.sh \
@@ -116,19 +122,51 @@ jobs:
           echo "R2_XRAY_VERSION=$XRAY_VERSION" >> "$GITHUB_ENV"
           echo "R2 将打包发布已满 ${XRAY_RELEASE_DELAY_DAYS} 天的稳定版：$XRAY_VERSION"
 
-          curl -fL \
+          curl -fsSL \
             --retry 5 \
             --retry-all-errors \
-            --connect-timeout 20 \
-            "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip" \
-            -o downloads/Xray-linux-64.zip
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/XTLS/Xray-core/releases/tags/${XRAY_VERSION}" \
+            -o downloads/xray-release.json
 
-          curl -fL \
-            --retry 5 \
-            --retry-all-errors \
-            --connect-timeout 20 \
-            "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-arm64-v8a.zip" \
-            -o downloads/Xray-linux-arm64-v8a.zip
+          download_verified_xray() {
+            local name="$1" dest="$2" url dgst_args=()
+            url="$(bash scripts/verify-xray-asset.sh \
+              --json downloads/xray-release.json \
+              --tag "$XRAY_VERSION" \
+              --name "$name" \
+              --print-url)"
+            [[ "$url" == "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${name}" ]]
+            curl -fL \
+              --retry 5 \
+              --retry-all-errors \
+              --connect-timeout 20 \
+              "$url" \
+              -o "$dest"
+            if jq -e --arg asset "${name}.dgst" '
+              [.assets[]? | select(.name == $asset)] | length == 1
+            ' downloads/xray-release.json >/dev/null; then
+              curl -fL \
+                --retry 5 \
+                --retry-all-errors \
+                --connect-timeout 20 \
+                "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${name}.dgst" \
+                -o "${dest}.dgst"
+              dgst_args=(--dgst "${dest}.dgst")
+            fi
+            bash scripts/verify-xray-asset.sh \
+              --json downloads/xray-release.json \
+              --tag "$XRAY_VERSION" \
+              --name "$name" \
+              --file "$dest" \
+              "${dgst_args[@]}"
+            echo "Verified $name for $XRAY_VERSION"
+          }
+
+          download_verified_xray Xray-linux-64.zip downloads/Xray-linux-64.zip
+          download_verified_xray Xray-linux-arm64-v8a.zip downloads/Xray-linux-arm64-v8a.zip
 
           unzip -t downloads/Xray-linux-64.zip
           unzip -t downloads/Xray-linux-arm64-v8a.zip
@@ -154,6 +192,7 @@ jobs:
             "$GEODATA_RELEASE_DELAY_DAYS")"
           GEODATA_TAG="$(jq -r '.tag_name' <<<"$GEODATA_RELEASE_JSON")"
           GEODATA_PUBLISHED_AT="$(jq -r '.published_at' <<<"$GEODATA_RELEASE_JSON")"
+          echo "R2_GEODATA_TAG=$GEODATA_TAG" >> "$GITHUB_ENV"
           echo "R2 将打包发布已满 ${GEODATA_RELEASE_DELAY_DAYS} 天的 GeoData：${GEODATA_TAG} (${GEODATA_PUBLISHED_AT})"
 
           download_geodata() {
@@ -231,6 +270,30 @@ jobs:
 
           mkdir -p output
 
+          AMD64_XRAY_SHA="$(sha256sum downloads/Xray-linux-64.zip | awk '{print $1}')"
+          ARM64_XRAY_SHA="$(sha256sum downloads/Xray-linux-arm64-v8a.zip | awk '{print $1}')"
+          MANAGER_VERSION="$(tr -d '[:space:]' < VERSION)"
+          [[ "$MANAGER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$R2_XRAY_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ -n "${R2_GEODATA_TAG:-}" ]]
+
+          jq -n \
+            --arg manager "$MANAGER_VERSION" \
+            --arg xray "$R2_XRAY_VERSION" \
+            --arg geo "$R2_GEODATA_TAG" \
+            --arg amd64_xray "$AMD64_XRAY_SHA" \
+            --arg arm64_xray "$ARM64_XRAY_SHA" \
+            '{
+              format: 1,
+              manager_version: $manager,
+              xray_version: $xray,
+              geodata_tag: $geo,
+              xray_assets: {
+                amd64: {name: "Xray-linux-64.zip", sha256: $amd64_xray},
+                arm64: {name: "Xray-linux-arm64-v8a.zip", sha256: $arm64_xray}
+              }
+            }' > output/release-manifest.json
+
           build_bundle() {
             local arch="$1"
             local xray_zip="$2"
@@ -260,6 +323,9 @@ jobs:
 
             install -m 644 SHA256SUMS \
               "$manager/SHA256SUMS"
+
+            install -m 644 output/release-manifest.json \
+              "$manager/release-manifest.json"
 
             install -m 644 "$xray_zip" \
               "$payload/$(basename "$xray_zip")"
@@ -293,6 +359,25 @@ jobs:
           install -m 755 \
             cloudflare-install.sh \
             output/install.sh
+
+          jq -n \
+            --slurpfile inner output/release-manifest.json \
+            --arg built "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg amd64 "$(tr -d '[:space:]' < output/latest-amd64.sha256)" \
+            --arg arm64 "$(tr -d '[:space:]' < output/latest-arm64.sha256)" \
+            '
+              $inner[0] + {
+                built_at: $built,
+                packages: {
+                  amd64: {file: "latest-amd64.tar.gz", sha256: $amd64},
+                  arm64: {file: "latest-arm64.tar.gz", sha256: $arm64}
+                }
+              }
+            ' > output/manifest.json
+
+          echo "Publish manifest manager=$MANAGER_VERSION xray=$R2_XRAY_VERSION geo=$R2_GEODATA_TAG"
+          echo "amd64 sha256=$(tr -d '[:space:]' < output/latest-amd64.sha256)"
+          echo "arm64 sha256=$(tr -d '[:space:]' < output/latest-arm64.sha256)"
 
           ls -lh output
 
@@ -343,6 +428,12 @@ jobs:
             "text/plain; charset=utf-8" \
             no-store
 
+          upload \
+            output/manifest.json \
+            releases/manifest.json \
+            "application/json; charset=utf-8" \
+            no-store
+
           # 最后更新一键入口
           upload \
             output/install.sh \
@@ -362,7 +453,8 @@ jobs:
             releases/latest-amd64.tar.gz \
             releases/latest-amd64.sha256 \
             releases/latest-arm64.tar.gz \
-            releases/latest-arm64.sha256
+            releases/latest-arm64.sha256 \
+            releases/manifest.json
           do
             aws s3api head-object \
               --bucket "$R2_BUCKET" \

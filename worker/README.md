@@ -3,7 +3,7 @@
 该 Worker 为 Xray Manager 提供 IPv4 / IPv6 下载入口：
 
 - `/install.sh`：公开读取 R2 的 `public/install.sh`。
-- `/releases/latest-{amd64,arm64}.{tar.gz,sha256}`：验证 Bearer `INSTALL_TOKEN` 后读取 R2。
+- `/releases/latest-{amd64,arm64}.{tar.gz,sha256}` 与 `/releases/manifest.json`：验证 Bearer `INSTALL_TOKEN` 后读取 R2。
 - 只接受 `GET` 与 `HEAD`，其他路径和版本化文件名不会被代理。
 
 ## 本地校验

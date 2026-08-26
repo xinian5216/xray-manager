@@ -68,8 +68,9 @@ sudo xraym --self-update-github
 更新流程：
 
 1. 获取 `VERSION`。
-2. 下载 `SHA256SUMS`、Launcher 和原始 Core。
-3. SHA256 校验通过。
+2. GitHub：下载 `SHA256SUMS`、Launcher 和原始 Core 并校验 SHA256。
+   Cloudflare：下载对应架构 tar、sidecar `.sha256` 和 `releases/manifest.json`，要求包摘要与外层清单一致。
+3. Cloudflare 解压后还要求内嵌 `release-manifest.json` 的 `manager_version` 与 `VERSION` 一致。
 4. 在本地为 Core 应用 Launcher 兼容补丁，防止 Core 覆盖 Launcher。
 5. 对 Launcher 与 Core 执行 `bash -n`。
 6. 安装/检查 `jq`、OpenSSL、`iproute2` 等运行依赖。

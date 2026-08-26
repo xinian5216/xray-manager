@@ -3,8 +3,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-PROJECT_VERSION="1.8.3"
-CORE_VERSION="1.8.3"
+PROJECT_VERSION="1.8.4"
+CORE_VERSION="1.8.4"
 REPOSITORY="xinian5216/xray-manager"
 REF="${XRAY_MANAGER_REF:-main}"
 API_BASE="https://api.github.com/repos/${REPOSITORY}/contents"
@@ -225,6 +225,24 @@ sha256_file() {
   else
     return 1
   fi
+}
+
+verify_extracted_release_manifest() {
+  local manager_dir="$1" manifest version
+  manifest="$manager_dir/release-manifest.json"
+  [[ -f "$manifest" && -f "$manager_dir/VERSION" ]] || {
+    err "更新包缺少发布清单或 VERSION。"
+    return 1
+  }
+  version="$(tr -d '[:space:]' <"$manager_dir/VERSION")"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+    err "更新包 VERSION 无效。"
+    return 1
+  }
+  grep -Eq "\"manager_version\"[[:space:]]*:[[:space:]]*\"${version}\"" "$manifest" || {
+    err "发布清单与 VERSION 不一致。"
+    return 1
+  }
 }
 
 verify_payload() {
@@ -675,7 +693,7 @@ self_update_cloudflare() {
 
   load_update_channel
 
-  local token tmp config arch package checksum expected actual manager latest
+  local token tmp config arch package checksum expected actual manager latest manifest_sha
   token="$(get_install_token)" || {
     err "没有 Cloudflare 安装密钥。"
     return 1
@@ -713,6 +731,9 @@ self_update_cloudflare() {
   curl --config "$config" \
     "$CLOUDFLARE_BASE/releases/$checksum" \
     -o "$tmp/$checksum"
+  curl --config "$config" \
+    "$CLOUDFLARE_BASE/releases/manifest.json" \
+    -o "$tmp/manifest.json"
 
   expected="$(tr -d '[:space:]' <"$tmp/$checksum")"
   actual="$(sha256_file "$tmp/$package" 2>/dev/null || true)"
@@ -720,17 +741,27 @@ self_update_cloudflare() {
     err "Cloudflare 更新包 SHA256 校验失败。"
     return 1
   }
+  command -v jq >/dev/null 2>&1 || {
+    err "Cloudflare 更新需要 jq 校验发布清单。"
+    return 1
+  }
+  manifest_sha="$(jq -r --arg arch "$arch" '.packages[$arch].sha256 // empty' "$tmp/manifest.json")"
+  [[ "$manifest_sha" =~ ^[0-9a-f]{64}$ && "$manifest_sha" == "$actual" ]] || {
+    err "Cloudflare 发布清单与安装包摘要不一致。"
+    return 1
+  }
 
   mkdir -p "$tmp/extracted"
   tar -xzf "$tmp/$package" -C "$tmp/extracted"
   manager="$tmp/extracted/xray-manager"
 
-  for file in VERSION SHA256SUMS xray-manager.sh lib/xray-manager-core.sh; do
+  for file in VERSION SHA256SUMS xray-manager.sh lib/xray-manager-core.sh release-manifest.json; do
     [[ -f "$manager/$file" ]] || {
       err "更新包缺少文件：$file"
       return 1
     }
   done
+  verify_extracted_release_manifest "$manager" || return 1
 
   latest="$(tr -d '[:space:]' <"$manager/VERSION")"
   echo "本机项目版本：$PROJECT_VERSION"

@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.8.3"
+SCRIPT_VERSION="1.8.4"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -40,7 +40,9 @@ MANAGER_LOCK_HELD=0
 
 OFFICIAL_INSTALLER="https://github.com/XTLS/Xray-install/raw/main/install-release.sh"
 OFFICIAL_ALPINE_INSTALLER="https://github.com/XTLS/Xray-install/raw/main/alpinelinux/install-release.sh"
-ACME_INSTALLER="https://get.acme.sh"
+ACME_PINNED_VERSION="3.1.4"
+ACME_PINNED_COMMIT="3661fd86b6304115e42f43910e6dd452ab9866d6"
+ACME_SCRIPT_SHA256="fcabf274d4f96966ec933879ae0257266e8ef2f7d16161f14b84dd896c0cac32"
 
 C_RESET='\033[0m'
 C_RED='\033[31m'
@@ -1858,6 +1860,46 @@ install_socat_for_acme() {
   esac
 }
 
+install_pinned_acme_sh() {
+  local email="$1" tmp archive script actual
+  if [[ -x /root/.acme.sh/acme.sh ]]; then
+    return 0
+  fi
+  info "下载固定版本 acme.sh ${ACME_PINNED_VERSION}（${ACME_PINNED_COMMIT:0:12}）..."
+  tmp="$(mktemp -d)"
+  archive="$tmp/acme.sh.tar.gz"
+  if ! curl_net -fL --retry 4 --connect-timeout 15 --max-time 120 \
+    "https://github.com/acmesh-official/acme.sh/archive/${ACME_PINNED_COMMIT}.tar.gz" \
+    -o "$archive"; then
+    rm -rf "$tmp"
+    err "无法下载固定版本的 acme.sh。"
+    warn "请先手动安装受信任的 /root/.acme.sh/acme.sh，再重新签发。"
+    return 1
+  fi
+  tar -tzf "$archive" >/dev/null || {
+    rm -rf "$tmp"
+    err "acme.sh 归档损坏，拒绝安装。"
+    return 1
+  }
+  tar -xzf "$archive" -C "$tmp"
+  script="$tmp/acme.sh-${ACME_PINNED_COMMIT}/acme.sh"
+  [[ -f "$script" ]] || {
+    rm -rf "$tmp"
+    err "acme.sh 归档中没有安装脚本。"
+    return 1
+  }
+  actual="$(offline_sha256_file "$script")"
+  if [[ "$actual" != "$ACME_SCRIPT_SHA256" ]]; then
+    rm -rf "$tmp"
+    err "acme.sh 脚本 SHA256 与固定值不符，拒绝执行。"
+    warn "请预装受信任的 acme.sh，不要使用 curl | sh。"
+    return 1
+  fi
+  bash "$script" --install -m "$email"
+  rm -rf "$tmp"
+  [[ -x /root/.acme.sh/acme.sh ]]
+}
+
 acme_issue_certificate() {
   local tag="$1" domain email acme target reloadcmd
   domain="$(ask_required "证书域名（需已解析到本机）")"
@@ -1876,8 +1918,7 @@ acme_issue_certificate() {
   install_socat_for_acme || warn "未能自动安装 socat，acme.sh standalone 可能失败。"
 
   if [[ ! -x /root/.acme.sh/acme.sh ]]; then
-    info "安装 acme.sh..."
-    curl_net -fsSL "$ACME_INSTALLER" | sh -s email="$email"
+    install_pinned_acme_sh "$email" || return 1
   fi
   acme="/root/.acme.sh/acme.sh"
   [[ -x "$acme" ]] || { err "acme.sh 安装失败。"; return 1; }

@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.8.3** · Core：**v1.8.3**
+> 当前项目版本：**v1.8.4** · Core：**v1.8.4**
 
 ## 核心功能
 
@@ -58,17 +58,17 @@ VPS 只需预先具备引导所用的 `curl` 与解包所用的 `tar`；`jq`、O
 
 1. 通过 Cloudflare 的 IPv4 / IPv6 边缘获取公开入口。
 2. 使用 Bearer 安装密钥访问 Worker 后的私有 R2 对象。
-3. 根据 CPU 架构下载完整离线包与 SHA256。
-4. 校验压缩包，解压仓库、Xray 和 GeoData。
+3. 根据 CPU 架构下载完整离线包、SHA256 和发布清单。
+4. 校验压缩包与清单，解压仓库、Xray 和 GeoData。
 5. 通过系统软件源安装 Xray Manager 的完整运行依赖。
 6. 调用 `offline-install.sh` 完成本地安装；Xray、GeoData 与项目文件不再访问其他外网。
 7. 记录 Cloudflare 更新来源，以后管理器、Xray-core 和 GeoData 更新继续使用同一通道。
 
 通过该入口安装后，主菜单中的 `1) 安装 / 修复 Xray`、`6) 更新 Xray-core` 和 `7) 更新 GeoData` 会自动从 Worker 后的私有 R2 获取离线包，不再探测或访问 GitHub/XTLS，也不需要 NAT64、WARP 或下载代理。每次下载会安全提示输入安装密钥，密钥不会持久保存。
 
-GitHub Actions 会在相关文件合并到 `main` 后，使用经过配置冒烟测试的固定 Xray 版本重新构建两个架构的包，并覆盖 R2 中的五个对象。R2 保持私有，只有 `public/install.sh` 通过 Worker 公开读取；安装包必须通过 Worker 密钥访问。
+GitHub Actions 会在相关文件合并到 `main` 后，使用经过配置冒烟测试的固定 Xray 版本重新构建两个架构的包，并覆盖 R2 中的六个对象。R2 保持私有，只有 `public/install.sh` 通过 Worker 公开读取；安装包必须通过 Worker 密钥访问。
 
-发布工作流始终写入固定的五个对象键：`public/install.sh`、两个 `latest-*.tar.gz` 和对应的两个 `latest-*.sha256`。同名对象会原位覆盖，不会按日期或版本新增对象；本工作流管理的 R2 存储量不会随每日更新无限累积。
+发布工作流始终写入固定的六个对象键：`public/install.sh`、两个 `latest-*.tar.gz`、对应的两个 `latest-*.sha256`，以及 `releases/manifest.json`。同名对象会原位覆盖，不会按日期或版本新增对象；本工作流管理的 R2 存储量不会随每日更新无限累积。
 
 Worker 源码位于 [`worker/`](worker/)，可将现有 `xray-manager-download` Worker 直接连接到本仓库构建部署，无需新建第二个 Worker。
 
@@ -280,11 +280,11 @@ Worker 本身不保存或打包 Xray，它只负责鉴权并读取私有 R2。R2
 `Publish offline bundles to R2` 每天北京时间 08:30 自动运行，也会在相关代码合并到 `main` 后运行：
 
 1. 从 XTLS/Xray-core Releases 中选择正式稳定版，不采用 Pre-release；新稳定版发布满 14 天后才允许进入 R2，期间继续使用上一版。
-2. 下载 AMD64 / ARM64 官方 Xray ZIP。
+2. 拉取该 Tag 的 Release 元数据，校验 AMD64 / ARM64 官方 ZIP 的下载 URL、资产名，并用 GitHub API `digest` 或官方 `.dgst` 验证 SHA256；摘要缺失、格式错误或不匹配时失败，不覆盖 R2。
 3. 从 Loyalsoldier `v2ray-rules-dat` 的 GitHub Releases 按 `published_at` 选择至少 7 天前、且四个 GeoData 与校验资产齐全的版本，再校验 SHA256；不依赖会被每日重建的 `release` 分支历史。
-4. 用待发布的 Xray 对全部配置和 GeoData 做测试；只有全部通过才覆盖 R2 对象。
+4. 用待发布的 Xray 对全部配置和 GeoData 做测试；只有全部通过才写入内嵌 `release-manifest.json`、外层 `releases/manifest.json` 并覆盖 R2 对象。
 
-因此 Xray Core 和规则库都不会在发布当天盲目追新；Core 观察 14 天，GeoData 观察 7 天。观察期结束后，上游下载失败、哈希不一致或新 Core 与现有配置不兼容时，工作流仍会失败，R2 继续保留上一次已验证的包。仓库里的 `XRAY_VERSION` 作为 CI 基线和上游 API 不可用时的回退版本。
+因此 Xray Core 和规则库都不会在发布当天盲目追新；Core 观察 14 天，GeoData 观察 7 天。观察期结束后，上游下载失败、哈希不一致、摘要缺失或新 Core 与现有配置不兼容时，工作流仍会失败，R2 继续保留上一次已验证的包。仓库里的 `XRAY_VERSION` 作为 CI 基线和上游 list-API 不可用时的回退版本；选定 Tag 的元数据与摘要仍然必须能取到。
 
 ### Worker 通过 GitHub 自动构建
 
@@ -485,12 +485,16 @@ Xray-core / UFW / BBR / 配置文件
 │   └── PRIVATE_INSTALL.md
 ├── scripts/
 │   ├── maintainer-map.sh
-│   └── refresh-checksums.sh
+│   ├── refresh-checksums.sh
+│   ├── select-xray-release.sh
+│   ├── select-geodata-release.sh
+│   └── verify-xray-asset.sh
 ├── tests/
 │   ├── inbound-management.sh
 │   ├── smoke-configs.sh
 │   ├── offline-install.sh
-│   └── cloudflare-update.sh
+│   ├── cloudflare-update.sh
+│   └── xray-asset-integrity.sh
 ├── worker/
 │   ├── src/index.ts
 │   ├── test/index.spec.ts
@@ -508,13 +512,13 @@ Xray-core / UFW / BBR / 配置文件
 
 ## 安装与更新安全
 
-1. 先下载 `SHA256SUMS`、Launcher 与原始 Core。
-2. 校验 SHA256。
+1. GitHub 路径先下载 `SHA256SUMS`、Launcher 与原始 Core，再校验 SHA256。
+2. Cloudflare 路径先校验 sidecar `.sha256` 与 `releases/manifest.json` 中的包摘要，解压后再核对内嵌 `release-manifest.json` 与 `VERSION`。
 3. 确认 Core 使用独立安装路径，不覆盖 `/usr/local/sbin/xraym`；安装器仍保留对旧版 Core 的兼容补丁。
 4. 对 Launcher 与补丁后的 Core 执行 `bash -n`。
 5. 全部通过后才写入 `releases/<version>/`，原子切换 `current`；失败时保留原 current。
 
-GitHub Token 默认不会写入配置文件；交互输入完成后仅用于本次私有仓库下载。
+GitHub Token 默认不会写入配置文件；交互输入完成后仅用于本次私有仓库下载。Cloudflare 安装密钥同样不落盘。
 
 ## IPv6-only
 
@@ -545,7 +549,7 @@ npm ci
 npm run check
 ```
 
-`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、事务化备份恢复、离线导入、Worker 类型检查和 Workers 运行时测试。`Publish offline bundles to R2` 每天选择发布已满 14 天的最新稳定版 Xray 和至少 7 天前的 GeoData 快照，再次运行配置与 GeoData 测试，成功后才构建并上传 AMD64 / ARM64 离线包。
+`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、事务化备份恢复、原子发布、上游资产完整性、离线导入、Worker 类型检查和 Workers 运行时测试。`Publish offline bundles to R2` 每天选择发布已满 14 天的最新稳定版 Xray 和至少 7 天前的 GeoData 快照，校验上游摘要并再次运行配置与 GeoData 测试，成功后才构建并上传 AMD64 / ARM64 离线包与发布清单。
 
 ## License
 
