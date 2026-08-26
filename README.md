@@ -443,15 +443,15 @@ REALITY 会把未通过认证的连接转发到 `target` 以维持正常 TLS 站
 
 ## 维护与故障定位
 
-仓库提供面向维护者的可搜索导航。输入故障现象或功能关键词，会直接返回应检查的实现文件、回归测试、关联文档和候选 Bash 函数：
+仓库提供面向维护者的可搜索导航。AI 第一次接触请用 `--ai` 或 [docs/ai/INDEX.md](docs/ai/INDEX.md)，只打开返回的行号切片，不要通读 Core：
 
 ```bash
-bash scripts/maintainer-map.sh "路由规则顺序"
-bash scripts/maintainer-map.sh "Worker 401"
-bash scripts/maintainer-map.sh "IPv6 下载"
+bash scripts/maintainer-map.sh --ai "路由规则顺序"
+bash scripts/maintainer-map.sh --ai "Worker 401"
+bash scripts/maintainer-map.sh --ai "IPv6 下载"
 ```
 
-路径或职责调整后执行 `bash scripts/maintainer-map.sh --check`，Validate 工作流也会自动阻止失效映射合并。维护前请先看 [维护与故障定位指南](docs/MAINTAINER_GUIDE.md)；仓库级自动化维护规则见 [AGENTS.md](AGENTS.md)。
+路径、职责或 Core 簇锚点调整后执行 `bash scripts/maintainer-map.sh --write-index && bash scripts/maintainer-map.sh --check`，Validate 工作流也会自动阻止失效映射合并。维护前请先看 [维护与故障定位指南](docs/MAINTAINER_GUIDE.md)；仓库级自动化维护规则见 [AGENTS.md](AGENTS.md)。
 
 ## 架构
 
@@ -482,7 +482,10 @@ Xray-core / UFW / BBR / 配置文件
 │   ├── USAGE.md
 │   ├── MAINTAINER_GUIDE.md
 │   ├── IPV6_ONLY.md
-│   └── PRIVATE_INSTALL.md
+│   ├── PRIVATE_INSTALL.md
+│   └── ai/                      # generated AI first-contact index
+│       ├── INDEX.md
+│       └── core-symbols.tsv
 ├── scripts/
 │   ├── maintainer-map.sh
 │   ├── refresh-checksums.sh
@@ -504,6 +507,7 @@ Xray-core / UFW / BBR / 配置文件
 ├── .github/workflows/publish-r2.yml
 ├── README.md
 ├── AGENTS.md
+├── CLAUDE.md
 ├── CHANGELOG.md
 ├── SECURITY.md
 ├── CONTRIBUTING.md
