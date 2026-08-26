@@ -33,6 +33,7 @@ rg -n --fixed-strings '完整错误文本' .
 | GitHub 私有仓库首次安装失败、依赖缺失 | `install.sh`、`cloudflare-install.sh` | `tests/bootstrap-install.sh`、Bash/ShellCheck |
 | Worker 一键安装、架构识别、校验失败 | `cloudflare-install.sh`、`offline-install.sh` | `tests/cloudflare-update.sh`、`tests/offline-install.sh` |
 | 已有 Xray 被识别、迁移或服务接管异常 | `lib/xray-manager-core.sh` 中 `discover_*`、`migrate_*`、`configure_*_service` | `tests/config-migration.sh`、`tests/offline-install.sh` |
+| 备份创建、归档校验、恢复或失败回滚异常 | Core 中 `backup_now`、`validate_backup_archive`、`restore_backup*` | `tests/backup-restore.sh`、`tests/wireguard-management.sh` |
 | IPv6-only、DNS64/NAT64、下载代理异常 | Core 中 `load_network_state` 至 `ipv6_only_menu` | `tests/cloudflare-core-download.sh` |
 | 入站详情、编号选择、迁移节点发现、SS 用户模式或健康诊断 | Core 中 `*inbound*`、`*shadowsocks*`、`diagnose_inbound` | `tests/inbound-management.sh`、`tests/smoke-configs.sh` |
 | WireGuard 密钥、客户端 Peer、配置导出/二维码、`.conf` 导入或 WARP `Reserved` | Core 中 `*wireguard*`、`*inbound_user*`、`backup_now`、`restore_backup` | `tests/wireguard-management.sh`、`tests/smoke-configs.sh` |

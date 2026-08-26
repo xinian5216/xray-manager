@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.8.0** · Core：**v1.8.0**
+> 当前项目版本：**v1.8.1** · Core：**v1.8.1**
 
 ## 核心功能
 
@@ -24,6 +24,7 @@
 - REALITY 共享 CDN target 风险检测、随机化回落限速
 - 入站健康诊断：监听、服务、SS2022/WireGuard 密钥、NTP、关联路由、TLS 证书与 UFW
 - UFW、BBR、日志、配置测试、备份恢复
+- 备份内置版本清单与唯一文件名；恢复前拒绝危险归档，服务异常时自动切回原配置
 - IPv6-only、NAT64 / DNS64、IPv6 可达下载代理
 - Cloudflare Worker + 私有 R2 的 IPv4 / IPv6 一键安装与后续自更新
 - Worker 源码、Wrangler 配置与运行时测试由 GitHub 版本化维护
@@ -523,7 +524,7 @@ npm ci
 npm run check
 ```
 
-`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、离线导入、Worker 类型检查和 Workers 运行时测试。`Publish offline bundles to R2` 每天选择发布已满 14 天的最新稳定版 Xray 和至少 7 天前的 GeoData 快照，再次运行配置与 GeoData 测试，成功后才构建并上传 AMD64 / ARM64 离线包。
+`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、事务化备份恢复、离线导入、Worker 类型检查和 Workers 运行时测试。`Publish offline bundles to R2` 每天选择发布已满 14 天的最新稳定版 Xray 和至少 7 天前的 GeoData 快照，再次运行配置与 GeoData 测试，成功后才构建并上传 AMD64 / ARM64 离线包。
 
 ## License
 
