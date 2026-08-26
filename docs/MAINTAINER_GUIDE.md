@@ -30,6 +30,7 @@ rg -n --fixed-strings '完整错误文本' .
 | 现象或需求 | 首要修改入口 | 必看测试 |
 | --- | --- | --- |
 | `xraym` 启动、自更新、版本显示异常 | `xray-manager.sh` | `tests/cloudflare-update.sh`、`tests/manager-menu-update.sh` |
+| Manager 版本比较、降级保护或并发锁异常 | Launcher/Core 中 `*version*`、`*manager_lock*` | `tests/version-lock.sh`、`tests/cloudflare-update.sh` |
 | GitHub 私有仓库首次安装失败、依赖缺失 | `install.sh`、`cloudflare-install.sh` | `tests/bootstrap-install.sh`、Bash/ShellCheck |
 | Worker 一键安装、架构识别、校验失败 | `cloudflare-install.sh`、`offline-install.sh` | `tests/cloudflare-update.sh`、`tests/offline-install.sh` |
 | 已有 Xray 被识别、迁移或服务接管异常 | `lib/xray-manager-core.sh` 中 `discover_*`、`migrate_*`、`configure_*_service` | `tests/config-migration.sh`、`tests/offline-install.sh` |

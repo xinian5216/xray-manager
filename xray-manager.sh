@@ -3,8 +3,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-PROJECT_VERSION="1.8.1"
-CORE_VERSION="1.8.1"
+PROJECT_VERSION="1.8.2"
+CORE_VERSION="1.8.2"
 REPOSITORY="xinian5216/xray-manager"
 REF="${XRAY_MANAGER_REF:-main}"
 API_BASE="https://api.github.com/repos/${REPOSITORY}/contents"
@@ -16,6 +16,9 @@ CLOUDFLARE_BASE="${XRAY_MANAGER_CLOUDFLARE_URL:-}"
 UPDATE_SOURCE="${XRAY_MANAGER_UPDATE_SOURCE:-}"
 UPDATE_SOURCE_FILE="${XRAY_MANAGER_UPDATE_SOURCE_FILE:-/etc/xray-manager/manager_update_source}"
 CLOUDFLARE_URL_FILE="${XRAY_MANAGER_CLOUDFLARE_URL_FILE:-/etc/xray-manager/cloudflare_url}"
+LOCK_DIR="${XRAY_MANAGER_LOCK_DIR:-/run/xray-manager.lock}"
+ALLOW_DOWNGRADE=0
+MANAGER_LOCK_HELD=0
 
 C_RESET='\033[0m'
 C_RED='\033[31m'
@@ -37,6 +40,7 @@ Usage:
   xraym --self-update       按安装来源更新 Launcher + Core
   xraym --self-update-cloudflare  强制从 Cloudflare 私有分发更新
   xraym --self-update-github      强制从私有 GitHub 仓库更新
+  xraym --self-update [--allow-downgrade]
   xraym --version           查看项目与核心版本
   xraym --help              查看帮助
 
@@ -48,8 +52,110 @@ Environment:
   XRAY_MANAGER_CLOUDFLARE_URL Cloudflare Worker 基础 URL
   XRAY_DOWNLOAD_PROXY       HTTP/SOCKS5 下载代理
   XRAY_MANAGER_REF          Git 分支/标签，默认 main
+  XRAY_MANAGER_LOCK_DIR     全局操作锁目录，默认 /run/xray-manager.lock
 EOF
 }
+
+manager_version_action() {
+  local current="${1#v}" target="${2#v}" current_part target_part index
+  local -a current_parts target_parts
+  [[ "$current" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]] || {
+    err "本机 VERSION 格式无效：$1"
+    return 1
+  }
+  [[ "$target" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]] || {
+    err "目标 VERSION 格式无效：$2"
+    return 1
+  }
+  IFS=. read -r -a current_parts <<<"$current"
+  IFS=. read -r -a target_parts <<<"$target"
+  for index in 0 1 2; do
+    current_part="${current_parts[$index]}"
+    target_part="${target_parts[$index]}"
+    if (( 10#$target_part > 10#$current_part )); then
+      printf 'upgrade'
+      return 0
+    elif (( 10#$target_part < 10#$current_part )); then
+      printf 'downgrade'
+      return 0
+    fi
+  done
+  printf 'reinstall'
+}
+
+approve_target_version() {
+  local target="$1" action ans
+  action="$(manager_version_action "$PROJECT_VERSION" "$target")" || return 1
+  case "$action" in
+    upgrade)
+      info "版本判定：upgrade（$PROJECT_VERSION -> $target）"
+      ;;
+    reinstall)
+      info "版本判定：reinstall（$PROJECT_VERSION -> $target）"
+      printf "当前已是该版本，仍强制重新安装？ [y/N]: "
+      read -r ans || true
+      [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]] || return 10
+      ;;
+    downgrade)
+      warn "版本判定：downgrade（$PROJECT_VERSION -> $target）"
+      if (( ! ALLOW_DOWNGRADE )); then
+        err "默认拒绝降级；确认需要回退时请显式添加 --allow-downgrade。"
+        return 1
+      fi
+      warn "已显式允许降级，现有新版功能或配置可能不被旧版识别。"
+      ;;
+  esac
+}
+
+acquire_manager_lock() {
+  local operation="$1" owner_pid owner_operation owner_started
+  if mkdir -m 700 "$LOCK_DIR" 2>/dev/null; then
+    printf '%s\n' "${BASHPID:-$$}" >"$LOCK_DIR/pid"
+    printf '%s\n' "$operation" >"$LOCK_DIR/operation"
+    date -u +%Y-%m-%dT%H:%M:%SZ >"$LOCK_DIR/started"
+    MANAGER_LOCK_HELD=1
+    return 0
+  fi
+
+  owner_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+  owner_operation="$(cat "$LOCK_DIR/operation" 2>/dev/null || printf unknown)"
+  owner_started="$(cat "$LOCK_DIR/started" 2>/dev/null || printf unknown)"
+  if [[ "$owner_pid" =~ ^[0-9]+$ ]] && kill -0 "$owner_pid" 2>/dev/null; then
+    err "Xray Manager 正在执行：$owner_operation（PID $owner_pid，开始于 $owner_started）。"
+    return 1
+  fi
+
+  warn "发现已失效的 Xray Manager 锁，正在安全清理。"
+  rm -f "$LOCK_DIR/pid" "$LOCK_DIR/operation" "$LOCK_DIR/started"
+  rmdir "$LOCK_DIR" 2>/dev/null || {
+    err "锁目录包含未知文件，拒绝清理：$LOCK_DIR"
+    return 1
+  }
+  mkdir -m 700 "$LOCK_DIR" || return 1
+  printf '%s\n' "${BASHPID:-$$}" >"$LOCK_DIR/pid"
+  printf '%s\n' "$operation" >"$LOCK_DIR/operation"
+  date -u +%Y-%m-%dT%H:%M:%SZ >"$LOCK_DIR/started"
+  MANAGER_LOCK_HELD=1
+}
+
+release_manager_lock() {
+  (( MANAGER_LOCK_HELD )) || return 0
+  if [[ "$(cat "$LOCK_DIR/pid" 2>/dev/null || true)" == "${BASHPID:-$$}" ]]; then
+    rm -f "$LOCK_DIR/pid" "$LOCK_DIR/operation" "$LOCK_DIR/started"
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+  fi
+  MANAGER_LOCK_HELD=0
+}
+
+with_manager_lock() (
+  local operation="$1"
+  shift
+  acquire_manager_lock "$operation" || return 1
+  trap release_manager_lock EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  "$@"
+)
 
 load_update_channel() {
   if [[ -z "$UPDATE_SOURCE" && -r "$UPDATE_SOURCE_FILE" ]]; then
@@ -187,16 +293,12 @@ self_update_github() {
   echo "本机项目版本：$PROJECT_VERSION"
   echo "仓库项目版本：$latest"
 
-  if [[ "$latest" == "$PROJECT_VERSION" ]]; then
-    ok "当前已是仓库版本。"
-    printf "仍强制重新安装？ [y/N]: "
-    local ans
-    read -r ans || true
-    [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]] || {
-      rm -rf "$tmp"
-      trap - RETURN
-      return 0
-    }
+  if approve_target_version "$latest"; then
+    :
+  else
+    local version_rc=$?
+    (( version_rc == 10 )) && return 0
+    return "$version_rc"
   fi
 
   info "下载 Launcher、Core 与校验文件..."
@@ -232,7 +334,7 @@ self_update_cloudflare() {
 
   load_update_channel
 
-  local token tmp config arch package checksum expected actual manager latest ans
+  local token tmp config arch package checksum expected actual manager latest
   token="$(get_install_token)" || {
     err "没有 Cloudflare 安装密钥。"
     return 1
@@ -293,15 +395,12 @@ self_update_cloudflare() {
   echo "本机项目版本：$PROJECT_VERSION"
   echo "分发项目版本：$latest"
 
-  if [[ "$latest" == "$PROJECT_VERSION" ]]; then
-    ok "当前已是分发版本。"
-    printf "仍强制重新安装？ [y/N]: "
-    read -r ans || true
-    [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]] || {
-      rm -rf "$tmp"
-      trap - RETURN
-      return 0
-    }
+  if approve_target_version "$latest"; then
+    :
+  else
+    local version_rc=$?
+    (( version_rc == 10 )) && return 0
+    return "$version_rc"
   fi
 
   verify_payload "$manager/SHA256SUMS" "$manager" \
@@ -341,15 +440,25 @@ run_core() {
   exec "$CORE_PATH" "$@"
 }
 
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
+
+case "${2:-}" in
+  "") ;;
+  --allow-downgrade) ALLOW_DOWNGRADE=1 ;;
+  *) err "未知参数：$2"; usage; exit 2 ;;
+esac
+
 case "${1:-}" in
   --self-update|update-manager)
-    self_update
+    with_manager_lock "Manager 自更新" self_update
     ;;
   --self-update-cloudflare)
-    self_update_cloudflare
+    with_manager_lock "Cloudflare Manager 自更新" self_update_cloudflare
     ;;
   --self-update-github)
-    self_update_github
+    with_manager_lock "GitHub Manager 自更新" self_update_github
     ;;
   --version|-V)
     echo "Xray Manager project: $PROJECT_VERSION"

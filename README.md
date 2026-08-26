@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.8.1** · Core：**v1.8.1**
+> 当前项目版本：**v1.8.2** · Core：**v1.8.2**
 
 ## 核心功能
 
@@ -243,6 +243,14 @@ sudo xraym --self-update-github
 ```
 
 Cloudflare 更新会再次提示输入安装密钥，密钥不会持久保存。`xraym --self-update` 更新 Launcher 与 Core；Xray-core 和 GeoData 仍通过菜单中的独立功能管理，但通过 Cloudflare 入口安装的机器会自动让这些功能复用同一个 Worker + R2 通道。
+
+更新器严格比较 `MAJOR.MINOR.PATCH` 三段式版本号：默认允许升级；相同版本会要求确认后重装；降级默认拒绝。确需回退时必须显式执行：
+
+```bash
+sudo xraym --self-update --allow-downgrade
+```
+
+Launcher 自更新和 Core 中所有会修改系统状态的主菜单操作共用一个 root-only 全局锁。同一时间只允许一个操作运行；若已有操作仍在执行，新操作会显示持锁进程并安全退出。崩溃遗留的锁会在确认持锁进程已不存在且锁目录结构安全后自动清理。
 
 不想记命令时，可直接在主菜单选择：
 
