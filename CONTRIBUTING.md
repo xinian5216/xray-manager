@@ -4,17 +4,18 @@
 
 ## 从问题定位代码
 
-先用可搜索的维护导航把故障现象映射到实现文件、对应测试和文档：
+先用可搜索的维护导航把故障现象映射到实现文件、对应测试和文档。AI 用 `--ai`（只返回行号切片）；不要把 `lib/xray-manager-core.sh` 整文件读进上下文：
 
 ```bash
-bash scripts/maintainer-map.sh "路由规则顺序"
-bash scripts/maintainer-map.sh "Worker 401"
+bash scripts/maintainer-map.sh --ai "路由规则顺序"
+bash scripts/maintainer-map.sh --ai "Worker 401"
 bash scripts/maintainer-map.sh --list
 ```
 
-详细边界、安全约束和测试选择见 [维护与故障定位指南](docs/MAINTAINER_GUIDE.md)。移动文件、改变模块职责或新增维护区域时，必须同步更新 `MAP_ROWS` 并运行：
+详细边界、安全约束和测试选择见 [维护与故障定位指南](docs/MAINTAINER_GUIDE.md)。仓库级 AI 路由见 [AGENTS.md](AGENTS.md) 与 [docs/ai/INDEX.md](docs/ai/INDEX.md)。移动文件、改变模块职责、新增维护区域或移动 Core 簇锚点函数时，必须同步更新 `MAP_ROWS` / `CLUSTER_ANCHORS` 并运行：
 
 ```bash
+bash scripts/maintainer-map.sh --write-index
 bash scripts/maintainer-map.sh --check
 bash tests/maintainer-map.sh
 ```

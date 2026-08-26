@@ -5,36 +5,79 @@ IFS=$'\n\t'
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAP="$ROOT_DIR/scripts/maintainer-map.sh"
 
+must_contain() {
+  local haystack="$1" needle="$2"
+  if ! printf '%s\n' "$haystack" | grep -Fq "$needle"; then
+    printf 'missing %q\n' "$needle" >&2
+    return 1
+  fi
+}
+
+bash "$MAP" --write-index >/dev/null
 bash "$MAP" --check >/dev/null
 
 routing="$(bash "$MAP" "路由规则顺序")"
-grep -Fq 'lib/xray-manager-core.sh' <<<"$routing"
-grep -Fq 'tests/smoke-configs.sh' <<<"$routing"
+must_contain "$routing" 'lib/xray-manager-core.sh'
+must_contain "$routing" 'tests/smoke-configs.sh'
 
 inbound="$(bash "$MAP" "SS2022 详情")"
-grep -Fq '[inbound-transport]' <<<"$inbound"
-grep -Fq 'tests/inbound-management.sh' <<<"$inbound"
+must_contain "$inbound" '[inbound-transport]'
+must_contain "$inbound" 'tests/inbound-management.sh'
 
 wireguard="$(bash "$MAP" "WireGuard 公钥")"
-grep -Fq 'tests/wireguard-management.sh' <<<"$wireguard"
-grep -Fq 'lib/xray-manager-core.sh' <<<"$wireguard"
+must_contain "$wireguard" 'tests/wireguard-management.sh'
+must_contain "$wireguard" 'lib/xray-manager-core.sh'
 
 worker="$(bash "$MAP" "Worker 401")"
-grep -Fq 'worker/src/index.ts' <<<"$worker"
-grep -Fq 'worker/test/index.spec.ts' <<<"$worker"
+must_contain "$worker" 'worker/src/index.ts'
+must_contain "$worker" 'worker/test/index.spec.ts'
 
 ipv6="$(bash "$MAP" "IPv6 下载")"
-grep -Fq '[network-ipv6]' <<<"$ipv6"
-grep -Fq 'tests/cloudflare-core-download.sh' <<<"$ipv6"
+must_contain "$ipv6" '[network-ipv6]'
+must_contain "$ipv6" 'tests/cloudflare-core-download.sh'
 
 integrity="$(bash "$MAP" "digest")"
-grep -Fq '[xray-geodata]' <<<"$integrity"
-grep -Fq 'scripts/verify-xray-asset.sh' <<<"$integrity"
-grep -Fq 'tests/xray-asset-integrity.sh' <<<"$integrity"
+must_contain "$integrity" '[xray-geodata]'
+must_contain "$integrity" 'scripts/verify-xray-asset.sh'
+must_contain "$integrity" 'tests/xray-asset-integrity.sh'
 
 if bash "$MAP" "definitely-unknown-area" >/dev/null 2>&1; then
   echo "unknown query unexpectedly succeeded" >&2
   exit 1
 fi
+
+ai_routing="$(bash "$MAP" --ai "路由规则顺序")"
+must_contain "$ai_routing" 'area: routing'
+must_contain "$ai_routing" '5647,6108p'
+must_contain "$ai_routing" 'tests/smoke-configs.sh'
+must_contain "$ai_routing" 'skip: README.md'
+
+ai_ss="$(bash "$MAP" --ai "SS2022")"
+must_contain "$ai_ss" 'area: inbound-transport'
+must_contain "$ai_ss" 'add_shadowsocks'
+must_contain "$ai_ss" 'validate_shadowsocks_2022_secret'
+if printf '%s\n' "$ai_ss" | grep -q '1835,5028p'; then
+  echo "SS2022 --ai dumped the whole inbound cluster" >&2
+  exit 1
+fi
+
+ai_worker="$(bash "$MAP" --ai "Worker 401")"
+must_contain "$ai_worker" 'area: worker-r2'
+must_contain "$ai_worker" 'worker/src/index.ts'
+must_contain "$ai_worker" 'skip: README.md'
+
+ai_backup="$(bash "$MAP" --ai "备份恢复")"
+must_contain "$ai_backup" 'area: config-safety'
+must_contain "$ai_backup" 'backup_now'
+must_contain "$ai_backup" 'tests/backup-restore.sh'
+
+if bash "$MAP" --ai "definitely-unknown-area" >/dev/null 2>&1; then
+  echo "unknown --ai query unexpectedly succeeded" >&2
+  exit 1
+fi
+
+grep -Eq $'\tsafe_write_config_file\t' "$ROOT_DIR/docs/ai/core-symbols.tsv"
+grep -Fq '`routing`' "$ROOT_DIR/docs/ai/INDEX.md"
+grep -Fq 'never whole' "$ROOT_DIR/docs/ai/INDEX.md"
 
 echo "Maintainer navigation tests passed."

@@ -4,25 +4,38 @@
 
 ## 最快入口
 
-不要先通读 4000 多行 Core。先按现象查询维护导航：
+不要先通读 6800 多行 Core。AI 第一次接触必须走 `--ai` 或 `docs/ai/INDEX.md`，只打开返回的行号切片。
 
 ```bash
-bash scripts/maintainer-map.sh "路由规则顺序"
-bash scripts/maintainer-map.sh "Worker 401"
-bash scripts/maintainer-map.sh "IPv6 下载"
+bash scripts/maintainer-map.sh --ai "路由规则顺序"
+bash scripts/maintainer-map.sh --ai "Worker 401"
+bash scripts/maintainer-map.sh --ai "SS2022"
 ```
 
-查看全部维护区域或检查导航内的路径是否仍然有效：
+人类也可以继续用无参数查询；它会打印区域、测试和最多 20 个候选函数：
 
 ```bash
+bash scripts/maintainer-map.sh "IPv6 下载"
 bash scripts/maintainer-map.sh --list
 bash scripts/maintainer-map.sh --check
 ```
 
-查询结果会给出实现文件、对应测试和需要同步检查的文档。若候选实现是 Bash 文件，还会尝试列出名称匹配的函数及行号。没有命中时，再按终端中的原始错误文本搜索：
+静态索引（AI 不能跑脚本时用）：
+
+- `docs/ai/INDEX.md`：区域 → Core 切片、测试、文件体积
+- `docs/ai/core-symbols.tsv`：函数名 → `file/start/end/area`，用 grep 查，不要整表读进上下文
+
+移动函数或维护区域后必须重新生成：
+
+```bash
+bash scripts/maintainer-map.sh --write-index
+```
+
+没有命中时，再按终端中的原始错误文本搜索：
 
 ```bash
 rg -n --fixed-strings '完整错误文本' .
+grep -i shadowsocks docs/ai/core-symbols.tsv
 ```
 
 ## 故障现象到修改入口

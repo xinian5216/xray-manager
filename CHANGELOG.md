@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- AI / 维护者第一次接触改为分层索引：`AGENTS.md` 只做路由，`scripts/maintainer-map.sh --ai` 与生成的 `docs/ai/` 按函数行号切片，避免把 6800 行 Core 读进上下文。
+
 ## v1.8.4 / Core v1.8.4 - 2026-08-26
 
 ### Security
