@@ -36,6 +36,7 @@ jobs:
           bash -n tests/cloudflare-core-download.sh
           bash -n tests/config-migration.sh
           bash -n tests/backup-restore.sh
+          bash -n tests/version-lock.sh
           bash -n tests/manager-menu-update.sh
           bash -n tests/geodata-release-delay.sh
           bash -n tests/xray-release-delay.sh
@@ -67,6 +68,7 @@ jobs:
           shellcheck -e SC2034 -S warning tests/cloudflare-core-download.sh
           shellcheck -e SC2034 -S warning tests/config-migration.sh
           shellcheck -e SC2034 -S warning tests/backup-restore.sh
+          shellcheck -e SC2034 -S warning tests/version-lock.sh
           shellcheck -e SC2034 -S warning tests/manager-menu-update.sh
           shellcheck -S warning tests/geodata-release-delay.sh
           shellcheck -S warning tests/xray-release-delay.sh
@@ -82,6 +84,8 @@ jobs:
         run: bash tests/config-migration.sh
       - name: Backup restore transaction test
         run: bash tests/backup-restore.sh
+      - name: Version policy and operation lock test
+        run: bash tests/version-lock.sh
       - name: Manager menu update test
         run: bash tests/manager-menu-update.sh
       - name: Xray release delay policy test

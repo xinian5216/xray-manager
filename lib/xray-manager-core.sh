@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.8.1"
+SCRIPT_VERSION="1.8.2"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -35,6 +35,8 @@ CLOUDFLARE_BASE="${XRAY_MANAGER_CLOUDFLARE_URL:-}"
 UPDATE_SOURCE="${XRAY_MANAGER_UPDATE_SOURCE:-}"
 CONFIG_MIGRATION_STATE_FILE="${XRAY_MANAGER_CONFIG_MIGRATION_STATE_FILE:-${STATE_DIR}/config_migration.state}"
 SYSTEMD_MANAGER_DROPIN="${XRAY_MANAGER_SYSTEMD_DROPIN:-/etc/systemd/system/xray.service.d/20-xray-manager-offline.conf}"
+LOCK_DIR="${XRAY_MANAGER_LOCK_DIR:-/run/xray-manager.lock}"
+MANAGER_LOCK_HELD=0
 
 OFFICIAL_INSTALLER="https://github.com/XTLS/Xray-install/raw/main/install-release.sh"
 OFFICIAL_ALPINE_INSTALLER="https://github.com/XTLS/Xray-install/raw/main/alpinelinux/install-release.sh"
@@ -126,6 +128,56 @@ require_root() {
   [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "请使用 root 运行：sudo bash $0"
   [[ -n "${BASH_VERSION:-}" ]] || die "本脚本需要 Bash。"
 }
+
+acquire_manager_lock() {
+  local operation="$1" owner_pid owner_operation owner_started
+  if mkdir -m 700 "$LOCK_DIR" 2>/dev/null; then
+    printf '%s\n' "${BASHPID:-$$}" >"$LOCK_DIR/pid"
+    printf '%s\n' "$operation" >"$LOCK_DIR/operation"
+    date -u +%Y-%m-%dT%H:%M:%SZ >"$LOCK_DIR/started"
+    MANAGER_LOCK_HELD=1
+    return 0
+  fi
+
+  owner_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+  owner_operation="$(cat "$LOCK_DIR/operation" 2>/dev/null || printf unknown)"
+  owner_started="$(cat "$LOCK_DIR/started" 2>/dev/null || printf unknown)"
+  if [[ "$owner_pid" =~ ^[0-9]+$ ]] && kill -0 "$owner_pid" 2>/dev/null; then
+    err "Xray Manager 正在执行：$owner_operation（PID $owner_pid，开始于 $owner_started）。"
+    return 1
+  fi
+
+  warn "发现已失效的 Xray Manager 锁，正在安全清理。"
+  rm -f "$LOCK_DIR/pid" "$LOCK_DIR/operation" "$LOCK_DIR/started"
+  rmdir "$LOCK_DIR" 2>/dev/null || {
+    err "锁目录包含未知文件，拒绝清理：$LOCK_DIR"
+    return 1
+  }
+  mkdir -m 700 "$LOCK_DIR" || return 1
+  printf '%s\n' "${BASHPID:-$$}" >"$LOCK_DIR/pid"
+  printf '%s\n' "$operation" >"$LOCK_DIR/operation"
+  date -u +%Y-%m-%dT%H:%M:%SZ >"$LOCK_DIR/started"
+  MANAGER_LOCK_HELD=1
+}
+
+release_manager_lock() {
+  (( MANAGER_LOCK_HELD )) || return 0
+  if [[ "$(cat "$LOCK_DIR/pid" 2>/dev/null || true)" == "${BASHPID:-$$}" ]]; then
+    rm -f "$LOCK_DIR/pid" "$LOCK_DIR/operation" "$LOCK_DIR/started"
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+  fi
+  MANAGER_LOCK_HELD=0
+}
+
+with_manager_lock() (
+  local operation="$1"
+  shift
+  acquire_manager_lock "$operation" || return 1
+  trap release_manager_lock EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  "$@"
+)
 
 OS_ID="unknown"
 OS_LIKE=""
@@ -6642,6 +6694,17 @@ port_forward_menu() {
   done
 }
 
+bbr_menu_action() {
+  local choice
+  echo "1) 启用/修复 BBR  2) 查看 BBR 状态"
+  read -r -p "请选择 [1]: " choice || true
+  if [[ "${choice:-1}" == "2" ]]; then
+    bbr_status
+  else
+    enable_bbr
+  fi
+}
+
 main_menu() {
   while true; do
     clear || true
@@ -6669,25 +6732,20 @@ main_menu() {
     local c
     read -r -p "请选择: " c || true
     case "$c" in
-      1) install_or_repair_xray; pause ;;
-      2) inbound_management_menu ;;
-      3) outbound_menu ;;
-      4) routing_menu ;;
-      5) port_forward_menu ;;
-      6) update_xray; pause ;;
-      7) update_geodata; pause ;;
-      8) service_menu ;;
-      9) backup_menu ;;
-      10) ufw_menu ;;
-      11)
-        echo "1) 启用/修复 BBR  2) 查看 BBR 状态"
-        read -r -p "请选择 [1]: " c || true
-        if [[ "${c:-1}" == "2" ]]; then bbr_status; else enable_bbr; fi
-        pause
-        ;;
-      12) certificate_menu; pause ;;
-      13) ipv6_only_menu ;;
-      14) offline_import_menu; pause ;;
+      1) with_manager_lock "安装或修复 Xray" install_or_repair_xray || true; pause ;;
+      2) with_manager_lock "入站管理" inbound_management_menu || { pause; continue; } ;;
+      3) with_manager_lock "出站管理" outbound_menu || { pause; continue; } ;;
+      4) with_manager_lock "路由管理" routing_menu || { pause; continue; } ;;
+      5) with_manager_lock "端口转发管理" port_forward_menu || { pause; continue; } ;;
+      6) with_manager_lock "更新 Xray-core" update_xray || true; pause ;;
+      7) with_manager_lock "更新 GeoData" update_geodata || true; pause ;;
+      8) with_manager_lock "服务与配置管理" service_menu || { pause; continue; } ;;
+      9) with_manager_lock "备份与恢复" backup_menu || { pause; continue; } ;;
+      10) with_manager_lock "UFW 管理" ufw_menu || { pause; continue; } ;;
+      11) with_manager_lock "BBR 管理" bbr_menu_action || true; pause ;;
+      12) with_manager_lock "TLS 证书管理" certificate_menu || true; pause ;;
+      13) with_manager_lock "IPv6-only 网络管理" ipv6_only_menu || { pause; continue; } ;;
+      14) with_manager_lock "离线导入" offline_import_menu || true; pause ;;
       15) system_info; pause ;;
       16) update_manager_script; pause ;;
       0) echo "Bye."; exit 0 ;;

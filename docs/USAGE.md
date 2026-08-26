@@ -236,6 +236,14 @@ sudo xraym --self-update
 
 通过 Cloudflare 安装时会继续使用 Worker + 私有 R2，并再次提示安装密钥；通过 GitHub 安装时继续使用 Fine-grained PAT。也可用 `--self-update-cloudflare` 或 `--self-update-github` 强制指定。
 
+更新器只接受并严格比较 `MAJOR.MINOR.PATCH` 三段式版本号。升级默认允许；相同版本会要求确认后重装；降级默认拒绝，确需回退时显式执行：
+
+```bash
+sudo xraym --self-update --allow-downgrade
+```
+
+自更新与 Core 中所有会修改系统状态的主菜单操作共用 root-only 全局锁。同一时间只能运行一个此类操作；仍在运行的持锁进程会阻止第二个操作，失效锁仅在确认进程不存在且锁目录结构安全后清理。
+
 ## 11. 更新 Xray 与 GeoData
 
 ```text

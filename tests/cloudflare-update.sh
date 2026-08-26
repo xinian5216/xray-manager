@@ -16,7 +16,7 @@ mkdir -p "$FIXTURES" "$MANAGER/lib" "$MOCK_BIN" "$INSTALL_ROOT"
 
 install -m 755 "$ROOT_DIR/xray-manager.sh" "$MANAGER/xray-manager.sh"
 install -m 755 "$ROOT_DIR/lib/xray-manager-core.sh" "$MANAGER/lib/xray-manager-core.sh"
-printf '9.9.9-test\n' >"$MANAGER/VERSION"
+printf '9.9.9\n' >"$MANAGER/VERSION"
 (
   cd "$MANAGER"
   sha256sum xray-manager.sh lib/xray-manager-core.sh >SHA256SUMS
@@ -48,6 +48,7 @@ PATH="$MOCK_BIN:$PATH" \
 XRAY_TEST_FIXTURES="$FIXTURES" \
 XRAY_MANAGER_INSTALL_TOKEN="test-install-token" \
 XRAY_MANAGER_CLOUDFLARE_URL="https://worker.example.invalid" \
+XRAY_MANAGER_LOCK_DIR="$TEST_ROOT/manager.lock" \
 XRAY_MANAGER_INSTALL_PATH="$INSTALL_ROOT/xraym" \
 XRAY_MANAGER_CORE_PATH="$INSTALL_ROOT/xray-manager-core.sh" \
 bash "$ROOT_DIR/xray-manager.sh" --self-update-cloudflare
