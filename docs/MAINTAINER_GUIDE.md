@@ -29,7 +29,7 @@ rg -n --fixed-strings '完整错误文本' .
 
 | 现象或需求 | 首要修改入口 | 必看测试 |
 | --- | --- | --- |
-| `xraym` 启动、自更新、版本显示异常 | `xray-manager.sh` | `tests/cloudflare-update.sh`、`tests/manager-menu-update.sh` |
+| `xraym` 启动、自更新、版本显示或回滚异常 | `xray-manager.sh` | `tests/cloudflare-update.sh`、`tests/atomic-release.sh`、`tests/manager-menu-update.sh` |
 | Manager 版本比较、降级保护或并发锁异常 | Launcher/Core 中 `*version*`、`*manager_lock*` | `tests/version-lock.sh`、`tests/cloudflare-update.sh` |
 | GitHub 私有仓库首次安装失败、依赖缺失 | `install.sh`、`cloudflare-install.sh` | `tests/bootstrap-install.sh`、Bash/ShellCheck |
 | Worker 一键安装、架构识别、校验失败 | `cloudflare-install.sh`、`offline-install.sh` | `tests/cloudflare-update.sh`、`tests/offline-install.sh` |
@@ -57,19 +57,20 @@ rg -n --fixed-strings '完整错误文本' .
 └── offline-install.sh         完全离线导入
 
 运行入口
-└── xray-manager.sh            Launcher、版本与自更新
-    └── lib/xray-manager-core.sh
-        ├── 平台、网络、下载与迁移
-        ├── 配置安全写入与服务控制
-        ├── 入站、出站、路由与端口转发
-        └── UFW、BBR、备份、证书与菜单
+└── xray-manager.sh            Launcher、版本、自更新与 --rollback
+    └── releases/<version>/    原子发布单元（Launcher + Core）
+        └── lib/xray-manager-core.sh
+            ├── 平台、网络、下载与迁移
+            ├── 配置安全写入与服务控制
+            ├── 入站、出站、路由与端口转发
+            └── UFW、BBR、备份、证书与菜单
 
 分发入口
 ├── worker/                    鉴权和私有 R2 读取
 └── .github/workflows/         校验、延迟选版、打包与上传
 ```
 
-Core 目前保持单文件，是因为 Launcher、自更新和离线包只需原子替换一个核心文件。不要只为“看起来整洁”把它拆成运行时依赖；如果确实拆分，必须在同一个变更里同步安装器、两种更新通道、离线包、`SHA256SUMS` 和相关测试。
+Core 目前保持单文件，是因为 Launcher、自更新和离线包只需把一对脚本作为同一发布单元安装。不要只为“看起来整洁”把它拆成运行时依赖；如果确实拆分，必须在同一个变更里同步安装器、两种更新通道、离线包、`SHA256SUMS` 和相关测试。
 
 ## 修改时必须守住的约束
 

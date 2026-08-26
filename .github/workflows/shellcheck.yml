@@ -38,6 +38,7 @@ jobs:
           bash -n tests/backup-restore.sh
           bash -n tests/version-lock.sh
           bash -n tests/manager-menu-update.sh
+          bash -n tests/atomic-release.sh
           bash -n tests/geodata-release-delay.sh
           bash -n tests/xray-release-delay.sh
       - name: Verify project version
@@ -70,6 +71,7 @@ jobs:
           shellcheck -e SC2034 -S warning tests/backup-restore.sh
           shellcheck -e SC2034 -S warning tests/version-lock.sh
           shellcheck -e SC2034 -S warning tests/manager-menu-update.sh
+          shellcheck -e SC2034 -S warning tests/atomic-release.sh
           shellcheck -S warning tests/geodata-release-delay.sh
           shellcheck -S warning tests/xray-release-delay.sh
       - name: Offline import test
@@ -86,6 +88,8 @@ jobs:
         run: bash tests/backup-restore.sh
       - name: Version policy and operation lock test
         run: bash tests/version-lock.sh
+      - name: Atomic Manager release test
+        run: bash tests/atomic-release.sh
       - name: Manager menu update test
         run: bash tests/manager-menu-update.sh
       - name: Xray release delay policy test

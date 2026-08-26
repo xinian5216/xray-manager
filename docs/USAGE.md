@@ -242,6 +242,14 @@ sudo xraym --self-update
 sudo xraym --self-update --allow-downgrade
 ```
 
+本地已成功安装过至少两个发布版本时，也可以不重新下载，直接回切上一版：
+
+```bash
+sudo xraym --rollback
+```
+
+`--rollback` 只接受已经通过最小自检的 `previous` 发布目录，并显示目标版本；再执行一次会切回刚才的 current。
+
 自更新与 Core 中所有会修改系统状态的主菜单操作共用 root-only 全局锁。同一时间只能运行一个此类操作；仍在运行的持锁进程会阻止第二个操作，失效锁仅在确认进程不存在且锁目录结构安全后清理。
 
 ## 11. 更新 Xray 与 GeoData
