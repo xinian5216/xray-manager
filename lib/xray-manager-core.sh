@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.8.0"
+SCRIPT_VERSION="1.8.1"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -1582,22 +1582,55 @@ show_logs() {
 
 backup_now() {
   ensure_layout
-  local ts file wireguard_dir
+  local ts stage temp_file token file wireguard_dir xray_version
   ts="$(date +%Y%m%d-%H%M%S)"
-  file="$BACKUP_DIR/xray-config-$ts.tar.gz"
+  stage="$(mktemp -d "$BACKUP_DIR/.backup-stage.XXXXXX")"
+  temp_file="$(mktemp "$BACKUP_DIR/.xray-config-$ts.XXXXXX")"
+  token="${temp_file##*.}"
+  file="$BACKUP_DIR/xray-config-$ts-$token.tar.gz"
   wireguard_dir="${STATE_DIR}/wireguard"
-  if [[ -d "$wireguard_dir" ]]; then
-    tar -czf "$file" \
-      -C "$XRAY_ROOT" "$(basename "$CONF_DIR")" "$(basename "$CERT_DIR")" \
-      -C "$STATE_DIR" wireguard 2>/dev/null || \
-      tar -czf "$file" -C "$XRAY_ROOT" "$(basename "$CONF_DIR")" \
-        -C "$STATE_DIR" wireguard
-  else
-    tar -C "$XRAY_ROOT" -czf "$file" "$(basename "$CONF_DIR")" \
-      "$(basename "$CERT_DIR")" 2>/dev/null || \
-      tar -C "$XRAY_ROOT" -czf "$file" "$(basename "$CONF_DIR")"
+
+  rm -f "$temp_file"
+  cp -a "$CONF_DIR" "$stage/$(basename "$CONF_DIR")" || {
+    rm -rf "$stage"
+    err "无法暂存 Xray 配置，备份已取消。"
+    return 1
+  }
+  [[ ! -d "$CERT_DIR" ]] || cp -a "$CERT_DIR" "$stage/$(basename "$CERT_DIR")"
+  [[ ! -d "$wireguard_dir" ]] || cp -a "$wireguard_dir" "$stage/wireguard"
+
+  xray_version="$(
+    "$XRAY_BIN" version 2>/dev/null | head -n 1 ||
+      "$XRAY_BIN" -version 2>/dev/null | head -n 1 || true
+  )"
+  jq -n \
+    --arg format "1" \
+    --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg manager_version "$SCRIPT_VERSION" \
+    --arg xray_version "$xray_version" \
+    --argjson certificates "$([[ -d "$CERT_DIR" ]] && printf true || printf false)" \
+    --argjson wireguard "$([[ -d "$wireguard_dir" ]] && printf true || printf false)" \
+    '{
+      format: ($format | tonumber),
+      createdAt: $created_at,
+      managerVersion: $manager_version,
+      xrayVersion: $xray_version,
+      includes: {
+        configuration: true,
+        certificates: $certificates,
+        wireguard: $wireguard
+      }
+    }' >"$stage/backup-manifest.json"
+
+  if ! tar -C "$stage" -czf "$temp_file" .; then
+    rm -rf "$stage"
+    rm -f "$temp_file"
+    err "创建备份压缩包失败。"
+    return 1
   fi
-  chmod 600 "$file"
+  chmod 600 "$temp_file"
+  mv "$temp_file" "$file"
+  rm -rf "$stage"
   printf '%s' "$file"
 }
 
@@ -6201,9 +6234,173 @@ bbr_status() {
   lsmod 2>/dev/null | grep -E '^tcp_bbr\b' || true
 }
 
-restore_backup() {
+validate_backup_archive() {
+  local archive="$1" listing verbose member normalized type saw_conf=0
+  listing="$(mktemp)"
+  verbose="$(mktemp)"
+
+  if ! LC_ALL=C tar -tzf "$archive" >"$listing" 2>/dev/null ||
+      ! LC_ALL=C tar -tvzf "$archive" >"$verbose" 2>/dev/null; then
+    rm -f "$listing" "$verbose"
+    err "备份压缩包损坏或无法读取。"
+    return 1
+  fi
+
+  while IFS= read -r member; do
+    normalized="${member#./}"
+    normalized="${normalized%/}"
+    [[ -n "$normalized" && "$normalized" != "." ]] || continue
+
+    if [[ "$normalized" == /* || "$normalized" == *\\* ]] ||
+       [[ ! "$normalized" =~ ^(conf\.d|certs|wireguard)(/[A-Za-z0-9._-]+)*$ &&
+          "$normalized" != "backup-manifest.json" ]]; then
+      rm -f "$listing" "$verbose"
+      err "备份包含不安全或未知路径：$member"
+      return 1
+    fi
+    [[ "$normalized" == "conf.d" || "$normalized" == conf.d/* ]] && saw_conf=1
+  done <"$listing"
+
+  while IFS= read -r member; do
+    type="${member:0:1}"
+    case "$type" in
+      -|d) ;;
+      *)
+        rm -f "$listing" "$verbose"
+        err "备份包含不允许的链接或特殊文件。"
+        return 1
+        ;;
+    esac
+  done <"$verbose"
+
+  rm -f "$listing" "$verbose"
+  (( saw_conf )) || {
+    err "备份缺少 conf.d 配置目录。"
+    return 1
+  }
+}
+
+rollback_restored_directories() {
+  local stage_root="$1" rollback_root="$2" stage_state="$3" rollback_state="$4"
+  local swapped_conf="$5" had_conf="$6" touched_certs="$7" had_certs="$8"
+  local touched_wireguard="$9" had_wireguard="${10}"
+  local wireguard_dir="${STATE_DIR}/wireguard"
+
+  if (( swapped_conf )); then
+    [[ ! -e "$CONF_DIR" ]] || mv "$CONF_DIR" "$stage_root/failed-conf.d"
+    (( ! had_conf )) || mv "$rollback_root/conf.d" "$CONF_DIR"
+  fi
+  if (( touched_certs )); then
+    [[ ! -e "$CERT_DIR" ]] || mv "$CERT_DIR" "$stage_root/failed-certs"
+    (( ! had_certs )) || mv "$rollback_root/certs" "$CERT_DIR"
+  fi
+  if (( touched_wireguard )); then
+    [[ ! -e "$wireguard_dir" ]] || mv "$wireguard_dir" "$stage_state/failed-wireguard"
+    (( ! had_wireguard )) || mv "$rollback_state/wireguard" "$wireguard_dir"
+  fi
+
+  ensure_layout
+}
+
+restore_backup_transaction() (
+  local extracted="$1"
+  local conf_name cert_name wireguard_dir stage_root rollback_root stage_state rollback_state
+  local swapped_conf=0 had_conf=0 touched_certs=0 had_certs=0
+  local touched_wireguard=0 had_wireguard=0 rollback_needed=0 committed=0
+
+  conf_name="$(basename "$CONF_DIR")"
+  cert_name="$(basename "$CERT_DIR")"
+  wireguard_dir="${STATE_DIR}/wireguard"
+  ensure_layout
+
+  stage_root="$(mktemp -d "${XRAY_ROOT}/.restore-stage.XXXXXX")"
+  rollback_root="$(mktemp -d "${XRAY_ROOT}/.restore-rollback.XXXXXX")"
+  stage_state="$(mktemp -d "${STATE_DIR}/.restore-stage.XXXXXX")"
+  rollback_state="$(mktemp -d "${STATE_DIR}/.restore-rollback.XXXXXX")"
+
+  cleanup_restore_transaction() {
+    local rc=$?
+    trap - EXIT INT TERM
+    set +e
+    if (( rollback_needed && ! committed )); then
+      err "恢复后的配置或服务异常，正在自动回滚..."
+      if rollback_restored_directories \
+          "$stage_root" "$rollback_root" "$stage_state" "$rollback_state" \
+          "$swapped_conf" "$had_conf" "$touched_certs" "$had_certs" \
+          "$touched_wireguard" "$had_wireguard" && service_restart; then
+        warn "恢复失败，已自动回到操作前配置。"
+      else
+        err "自动回滚后 Xray 仍无法启动，请使用 VPS 控制台检查。"
+        rc=2
+      fi
+    fi
+    rm -rf "$stage_root" "$rollback_root" "$stage_state" "$rollback_state"
+    exit "$rc"
+  }
+  trap cleanup_restore_transaction EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  cp -a "$extracted/$conf_name" "$stage_root/$conf_name"
+  if [[ -d "$extracted/$cert_name" ]]; then
+    cp -a "$extracted/$cert_name" "$stage_root/$cert_name"
+    touched_certs=1
+  fi
+  touched_wireguard=1
+  [[ ! -d "$extracted/wireguard" ]] || cp -a "$extracted/wireguard" "$stage_state/wireguard"
+
+  rollback_needed=1
+  if [[ -e "$CONF_DIR" ]]; then
+    mv "$CONF_DIR" "$rollback_root/conf.d"
+    had_conf=1
+  fi
+  mv "$stage_root/$conf_name" "$CONF_DIR"
+  swapped_conf=1
+
+  if (( touched_certs )); then
+    if [[ -e "$CERT_DIR" ]]; then
+      mv "$CERT_DIR" "$rollback_root/certs"
+      had_certs=1
+    fi
+    mv "$stage_root/$cert_name" "$CERT_DIR"
+  fi
+
+  if [[ -e "$wireguard_dir" ]]; then
+    mv "$wireguard_dir" "$rollback_state/wireguard"
+    had_wireguard=1
+  fi
+  [[ ! -d "$stage_state/wireguard" ]] || mv "$stage_state/wireguard" "$wireguard_dir"
+
+  ensure_layout
+  if (( touched_certs )) && [[ -d "$CERT_DIR" ]]; then
+    chown -R root:"$XRAY_RUN_GROUP" "$CERT_DIR" 2>/dev/null || true
+    find "$CERT_DIR" -type d -exec chmod 750 {} \;
+    find "$CERT_DIR" -type f -exec chmod 640 {} \;
+  fi
+  if [[ -d "$wireguard_dir" ]]; then
+    chown -R root:root "$wireguard_dir" 2>/dev/null || true
+    find "$wireguard_dir" -type d -exec chmod 700 {} \;
+    find "$wireguard_dir" -type f -exec chmod 600 {} \;
+  fi
+  if test_config && service_restart; then
+    committed=1
+    ok "恢复完成。"
+    return 0
+  fi
+  return 1
+)
+
+restore_backup() (
   need_xray || return
-  local files=() f i choice selected tmp
+  local files=() f i choice selected tmp safety_backup rc
+  tmp=""
+  cleanup_restore_extract() {
+    [[ -z "$tmp" ]] || rm -rf "$tmp"
+  }
+  trap cleanup_restore_extract EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
   shopt -s nullglob
   for f in "$BACKUP_DIR"/xray-config-*.tar.gz; do files+=("$f"); done
   shopt -u nullglob
@@ -6218,40 +6415,30 @@ restore_backup() {
   (( choice >= 1 && choice <= ${#files[@]} )) || { err "超出范围。"; return; }
   selected="${files[$((choice-1))]}"
 
+  validate_backup_archive "$selected" || return 1
   tmp="$(mktemp -d)"
   tar -xzf "$selected" -C "$tmp"
-  [[ -d "$tmp/$(basename "$CONF_DIR")" ]] || { rm -rf "$tmp"; err "备份结构无效。"; return; }
+  [[ -d "$tmp/$(basename "$CONF_DIR")" ]] || { err "备份结构无效。"; return 1; }
 
   if ! test_config_dir "$tmp/$(basename "$CONF_DIR")"; then
-    rm -rf "$tmp"
     err "备份中的配置测试失败，拒绝恢复。"
-    return
+    return 1
   fi
 
-  confirm "确认恢复 $(basename "$selected")？当前配置会先再备份一次。" || { rm -rf "$tmp"; return; }
-  backup_now >/dev/null
+  confirm "确认恢复 $(basename "$selected")？当前配置会先再备份一次。" || return 0
+  safety_backup="$(backup_now)" || {
+    err "无法为当前配置创建安全备份，恢复已取消。"
+    return 1
+  }
+  info "恢复前安全备份：$safety_backup"
 
-  rm -rf "$CONF_DIR"
-  cp -a "$tmp/$(basename "$CONF_DIR")" "$CONF_DIR"
-  if [[ -d "$tmp/$(basename "$CERT_DIR")" ]]; then
-    rm -rf "$CERT_DIR"
-    cp -a "$tmp/$(basename "$CERT_DIR")" "$CERT_DIR"
-  fi
-  if [[ -d "$tmp/wireguard" ]]; then
-    rm -rf "${STATE_DIR}/wireguard"
-    cp -a "$tmp/wireguard" "${STATE_DIR}/wireguard"
-    chmod 700 "${STATE_DIR}/wireguard"
-    find "${STATE_DIR}/wireguard" -type d -exec chmod 700 {} \;
-    find "${STATE_DIR}/wireguard" -type f -exec chmod 600 {} \;
+  if restore_backup_transaction "$tmp"; then
+    return 0
   else
-    rm -rf "${STATE_DIR}/wireguard"
+    rc=$?
+    return "$rc"
   fi
-  rm -rf "$tmp"
-
-  ensure_layout
-  service_restart
-  ok "恢复完成。"
-}
+)
 
 backup_menu() {
   while true; do
