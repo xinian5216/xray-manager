@@ -156,21 +156,13 @@ patch_core_for_launcher() {
   fi
 }
 
-install_pair() {
-  local launcher="$1" core="$2"
-  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-    install -d -m 755 "$(dirname "$CORE_PATH")"
-    install -m 755 "$launcher" "$INSTALL_PATH"
-    install -m 755 "$core" "$CORE_PATH"
-  else
-    command -v sudo >/dev/null 2>&1 || {
-      err "需要 root 写入 /usr/local，但系统没有 sudo。"
-      return 1
-    }
-    sudo install -d -m 755 "$(dirname "$CORE_PATH")"
-    sudo install -m 755 "$launcher" "$INSTALL_PATH"
-    sudo install -m 755 "$core" "$CORE_PATH"
-  fi
+install_release_pair() {
+  export XRAY_MANAGER_INSTALL_PATH="$INSTALL_PATH"
+  export XRAY_MANAGER_CORE_PATH="$CORE_PATH"
+  # 使用刚下载的 Launcher 事务安装函数，与后续自更新共用同一发布布局。
+  # shellcheck source=/dev/null
+  source "$1"
+  install_pair "$1" "$2"
 }
 
 install_runtime_dependencies() {
@@ -238,7 +230,7 @@ bash -n "$TMP/lib/xray-manager-core.sh"
 
 info "安装 Xray Manager 运行依赖（含 jq、OpenSSL、iproute2）..."
 install_runtime_dependencies "$TMP/lib/xray-manager-core.sh"
-install_pair "$TMP/xray-manager.sh" "$TMP/lib/xray-manager-core.sh"
+install_release_pair "$TMP/xray-manager.sh" "$TMP/lib/xray-manager-core.sh"
 persist_github_update_source "$TMP/manager_update_source"
 ok "Xray Manager 项目版本 $VERSION 安装完成。"
 echo "Launcher: $INSTALL_PATH"

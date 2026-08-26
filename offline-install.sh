@@ -106,9 +106,11 @@ bash -n "$ROOT_DIR/lib/xray-manager-core.sh"
 source "$ROOT_DIR/lib/xray-manager-core.sh"
 offline_import_xray "$XRAY_ZIP" "$GEOIP_FILE" "$GEOSITE_FILE"
 
-install -d -m 755 "$(dirname "$CORE_PATH")"
-install -m 755 "$ROOT_DIR/xray-manager.sh" "$INSTALL_PATH"
-install -m 755 "$ROOT_DIR/lib/xray-manager-core.sh" "$CORE_PATH"
+export XRAY_MANAGER_INSTALL_PATH="$INSTALL_PATH"
+export XRAY_MANAGER_CORE_PATH="$CORE_PATH"
+# shellcheck source=xray-manager.sh
+source "$ROOT_DIR/xray-manager.sh"
+install_pair "$ROOT_DIR/xray-manager.sh" "$ROOT_DIR/lib/xray-manager-core.sh"
 
 if [[ -n "${XRAY_MANAGER_UPDATE_SOURCE:-}" ]]; then
   case "$XRAY_MANAGER_UPDATE_SOURCE" in

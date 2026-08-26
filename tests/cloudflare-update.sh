@@ -55,4 +55,13 @@ bash "$ROOT_DIR/xray-manager.sh" --self-update-cloudflare
 
 cmp "$MANAGER/xray-manager.sh" "$INSTALL_ROOT/xraym"
 cmp "$MANAGER/lib/xray-manager-core.sh" "$INSTALL_ROOT/xray-manager-core.sh"
+[[ -L "$INSTALL_ROOT/xraym" ]]
+[[ -L "$INSTALL_ROOT/current" ]]
+[[ -L "$INSTALL_ROOT/xray-manager-core.sh" ]]
+[[ -f "$INSTALL_ROOT/current/xray-manager.sh" ]]
+[[ -f "$INSTALL_ROOT/current/xray-manager-core.sh" ]]
+if grep -Rqs 'test-install-token' "$INSTALL_ROOT"; then
+  echo "Cloudflare install token was persisted on disk" >&2
+  exit 1
+fi
 echo "Cloudflare manager update test passed."

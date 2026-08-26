@@ -3,13 +3,17 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-PROJECT_VERSION="1.8.2"
-CORE_VERSION="1.8.2"
+PROJECT_VERSION="1.8.3"
+CORE_VERSION="1.8.3"
 REPOSITORY="xinian5216/xray-manager"
 REF="${XRAY_MANAGER_REF:-main}"
 API_BASE="https://api.github.com/repos/${REPOSITORY}/contents"
 INSTALL_PATH="${XRAY_MANAGER_INSTALL_PATH:-/usr/local/sbin/xraym}"
 CORE_PATH="${XRAY_MANAGER_CORE_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"
+LIB_DIR="${XRAY_MANAGER_LIB_DIR:-}"
+RELEASES_DIR="${XRAY_MANAGER_RELEASES_DIR:-}"
+CURRENT_LINK="${XRAY_MANAGER_CURRENT_LINK:-}"
+PREVIOUS_LINK="${XRAY_MANAGER_PREVIOUS_LINK:-}"
 DOWNLOAD_PROXY="${XRAY_DOWNLOAD_PROXY:-}"
 CLOUDFLARE_BASE_DEFAULT="https://xray-manager-download.xinian5216.workers.dev"
 CLOUDFLARE_BASE="${XRAY_MANAGER_CLOUDFLARE_URL:-}"
@@ -41,6 +45,7 @@ Usage:
   xraym --self-update-cloudflare  强制从 Cloudflare 私有分发更新
   xraym --self-update-github      强制从私有 GitHub 仓库更新
   xraym --self-update [--allow-downgrade]
+  xraym --rollback          切换到已校验的本地上一版本
   xraym --version           查看项目与核心版本
   xraym --help              查看帮助
 
@@ -250,24 +255,360 @@ patch_core_for_launcher() {
   fi
 }
 
-install_pair() {
-  local launcher="$1" core="$2"
+manager_layout_paths() {
+  INSTALL_PATH="${XRAY_MANAGER_INSTALL_PATH:-${INSTALL_PATH:-/usr/local/sbin/xraym}}"
+  CORE_PATH="${XRAY_MANAGER_CORE_PATH:-${CORE_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}}"
+  LIB_DIR="${XRAY_MANAGER_LIB_DIR:-$(dirname "$CORE_PATH")}"
+  RELEASES_DIR="${XRAY_MANAGER_RELEASES_DIR:-$LIB_DIR/releases}"
+  CURRENT_LINK="${XRAY_MANAGER_CURRENT_LINK:-$LIB_DIR/current}"
+  PREVIOUS_LINK="${XRAY_MANAGER_PREVIOUS_LINK:-$LIB_DIR/previous}"
+}
 
-  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-    install -d -m 755 "$(dirname "$CORE_PATH")"
-    install -m 755 "$launcher" "$INSTALL_PATH"
-    install -m 755 "$core" "$CORE_PATH"
+manager_can_write() {
+  local path="$1" dir="$1"
+  [[ "${EUID:-$(id -u)}" -eq 0 ]] && return 0
+  [[ -e "$dir" ]] || dir="$(dirname "$dir")"
+  while [[ ! -e "$dir" && "$dir" != "/" && "$dir" != "." ]]; do
+    dir="$(dirname "$dir")"
+  done
+  [[ -w "$dir" ]]
+}
+
+manager_needs_sudo() {
+  [[ "${EUID:-$(id -u)}" -eq 0 ]] && return 1
+  manager_layout_paths
+  manager_can_write "$LIB_DIR" && manager_can_write "$(dirname "$INSTALL_PATH")" && return 1
+  return 0
+}
+
+run_priv() {
+  if manager_needs_sudo; then
+    command -v sudo >/dev/null 2>&1 || {
+      err "需要 root 权限写入 /usr/local，但系统没有 sudo。"
+      return 1
+    }
+    sudo "$@"
+  else
+    "$@"
+  fi
+}
+
+read_project_version() {
+  local file="$1" version
+  [[ -f "$file" ]] || return 1
+  version="$(sed -n 's/^PROJECT_VERSION="\([^"]*\)".*/\1/p' "$file" | head -n1)"
+  [[ "$version" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]] || return 1
+  printf '%s' "$version"
+}
+
+read_core_version() {
+  local file="$1" version
+  [[ -f "$file" ]] || return 1
+  version="$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)".*/\1/p' "$file" | head -n1)"
+  [[ "$version" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]] || return 1
+  printf '%s' "$version"
+}
+
+resolve_link() {
+  local link="$1"
+  if [[ -L "$link" || -d "$link" ]]; then
+    readlink -f "$link" 2>/dev/null || true
+  fi
+}
+
+verify_release_dir() {
+  local dir="$1" launcher core
+  launcher="$dir/xray-manager.sh"
+  core="$dir/xray-manager-core.sh"
+  [[ -f "$launcher" && -f "$core" ]] || return 1
+  [[ -x "$launcher" && -x "$core" ]] || return 1
+  bash -n "$launcher" || return 1
+  bash -n "$core" || return 1
+  read_project_version "$launcher" >/dev/null || return 1
+  read_core_version "$core" >/dev/null || return 1
+}
+
+selfcheck_current_release() {
+  local dir version core_ver
+  if [[ "${XRAY_MANAGER_FAIL_STEP:-}" == "selfcheck" ]]; then
+    return 1
+  fi
+  dir="$(resolve_link "$CURRENT_LINK")"
+  [[ -n "$dir" ]] || return 1
+  verify_release_dir "$dir" || return 1
+  version="$(read_project_version "$dir/xray-manager.sh")" || return 1
+  core_ver="$(read_core_version "$dir/xray-manager-core.sh")" || return 1
+  [[ "$version" == "$core_ver" ]] || {
+    err "Launcher/Core 版本不一致：$version vs $core_ver"
+    return 1
+  }
+  bash -c 'source "$1"; [[ -n "${PROJECT_VERSION:-}" ]]' _ "$dir/xray-manager.sh" || return 1
+  bash -c 'source "$1"; [[ -n "${SCRIPT_VERSION:-}" ]]' _ "$dir/xray-manager-core.sh" || return 1
+}
+
+atomic_symlink() {
+  local target="$1" link="$2" tmp
+  tmp="${link}.tmp.$$"
+  if [[ -e "$link" && ! -L "$link" ]]; then
+    err "拒绝覆盖非符号链接：$link"
+    return 1
+  fi
+  run_priv ln -sfn "$target" "$tmp" || return 1
+  if run_priv mv -fT "$tmp" "$link" 2>/dev/null; then
+    return 0
+  fi
+  # BusyBox/non-GNU mv has no -T; ln -sfn replaces the link in place.
+  if run_priv ln -sfn "$target" "$link"; then
+    run_priv rm -f "$tmp"
+    return 0
+  fi
+  run_priv rm -f "$tmp"
+  return 1
+}
+
+install_release_file() {
+  run_priv install -m 755 "$1" "$2"
+}
+
+replace_with_symlink() {
+  local target="$1" link="$2" backup
+  if [[ -L "$link" ]]; then
+    atomic_symlink "$target" "$link"
+    return
+  fi
+  if [[ -e "$link" ]]; then
+    backup="${link}.legacy.$$"
+    run_priv mv -f "$link" "$backup" || return 1
+    if ! atomic_symlink "$target" "$link"; then
+      run_priv mv -f "$backup" "$link"
+      return 1
+    fi
+    run_priv rm -f "$backup"
+    return 0
+  fi
+  run_priv install -d -m 755 "$(dirname "$link")" || return 1
+  atomic_symlink "$target" "$link"
+}
+
+ensure_compat_links() {
+  local current_dir
+  current_dir="$(resolve_link "$CURRENT_LINK")"
+  [[ -n "$current_dir" ]] || return 1
+  replace_with_symlink "$current_dir/xray-manager.sh" "$INSTALL_PATH" || return 1
+  if [[ "$CORE_PATH" != "$current_dir/xray-manager-core.sh" ]]; then
+    replace_with_symlink "$current_dir/xray-manager-core.sh" "$CORE_PATH" || return 1
+  fi
+}
+
+choose_release_dir() {
+  local version="$1" dest live prev
+  dest="$RELEASES_DIR/$version"
+  live="$(resolve_link "$CURRENT_LINK")"
+  prev="$(resolve_link "$PREVIOUS_LINK")"
+  if [[ -n "$live" && "$dest" == "$live" ]] || [[ -n "$prev" && "$dest" == "$prev" ]]; then
+    dest="$RELEASES_DIR/${version}.reinstall.$$"
+  fi
+  printf '%s' "$dest"
+}
+
+prune_old_releases() {
+  local keep_current keep_previous entry
+  keep_current="$(resolve_link "$CURRENT_LINK")"
+  keep_previous="$(resolve_link "$PREVIOUS_LINK")"
+  [[ -d "$RELEASES_DIR" ]] || return 0
+  shopt -s nullglob
+  for entry in "$RELEASES_DIR"/* "$RELEASES_DIR"/.[!.]*; do
+    [[ -e "$entry" ]] || continue
+    [[ "$entry" == "$keep_current" || "$entry" == "$keep_previous" ]] && continue
+    run_priv rm -rf "$entry"
+  done
+  shopt -u nullglob
+}
+
+migrate_legacy_layout() {
+  local launcher_src="" core_src="" version dest
+  manager_layout_paths
+
+  if [[ -L "$CURRENT_LINK" ]] && verify_release_dir "$CURRENT_LINK"; then
     return 0
   fi
 
-  command -v sudo >/dev/null 2>&1 || {
-    err "需要 root 权限写入 /usr/local，但系统没有 sudo。"
+  if [[ -f "$INSTALL_PATH" && ! -L "$INSTALL_PATH" ]]; then
+    launcher_src="$INSTALL_PATH"
+  fi
+  if [[ -f "$CORE_PATH" && ! -L "$CORE_PATH" ]]; then
+    core_src="$CORE_PATH"
+  fi
+
+  if [[ -z "$launcher_src" && -z "$core_src" ]]; then
+    return 0
+  fi
+  if [[ -z "$launcher_src" || -z "$core_src" ]]; then
+    warn "旧安装不完整（缺少 Launcher 或 Core），跳过布局迁移。"
+    return 0
+  fi
+
+  version="$(read_project_version "$launcher_src" || true)"
+  version="${version:-0.0.0}"
+
+  run_priv install -d -m 755 "$LIB_DIR" "$RELEASES_DIR" || return 1
+  dest="$RELEASES_DIR/$version"
+  if [[ -e "$dest" ]]; then
+    dest="$RELEASES_DIR/${version}.migrated.$$"
+  fi
+  run_priv install -d -m 755 "$dest" || return 1
+  install_release_file "$launcher_src" "$dest/xray-manager.sh" || return 1
+  install_release_file "$core_src" "$dest/xray-manager-core.sh" || return 1
+  if ! verify_release_dir "$dest"; then
+    err "旧安装迁移后校验失败，保留原文件。"
+    run_priv rm -rf "$dest"
+    return 1
+  fi
+  atomic_symlink "$dest" "$CURRENT_LINK" || return 1
+  ensure_compat_links || return 1
+  info "已将固定路径安装迁移为发布目录：$version"
+}
+
+restore_current_link() {
+  local live="$1"
+  if [[ -n "$live" ]]; then
+    atomic_symlink "$live" "$CURRENT_LINK" || true
+    ensure_compat_links || true
+  else
+    run_priv rm -f "$CURRENT_LINK"
+  fi
+}
+
+install_pair() {
+  local launcher="$1" core="$2"
+  local stage dest version live
+
+  manager_layout_paths
+
+  [[ -f "$launcher" && -f "$core" ]] || {
+    err "安装源文件缺失。"
     return 1
   }
 
-  sudo install -d -m 755 "$(dirname "$CORE_PATH")"
-  sudo install -m 755 "$launcher" "$INSTALL_PATH"
-  sudo install -m 755 "$core" "$CORE_PATH"
+  version="$(read_project_version "$launcher")" || {
+    err "无法从 Launcher 读取有效 VERSION。"
+    return 1
+  }
+
+  migrate_legacy_layout || return 1
+
+  live="$(resolve_link "$CURRENT_LINK")"
+  run_priv install -d -m 755 "$LIB_DIR" "$RELEASES_DIR" || return 1
+
+  stage="$RELEASES_DIR/.stage.$$"
+  run_priv rm -rf "$stage"
+  run_priv install -d -m 755 "$stage" || return 1
+
+  if [[ "${XRAY_MANAGER_FAIL_STEP:-}" == "launcher" ]]; then
+    run_priv rm -rf "$stage"
+    err "Launcher 写入失败，当前版本未改变。"
+    return 1
+  fi
+  if ! install_release_file "$launcher" "$stage/xray-manager.sh"; then
+    run_priv rm -rf "$stage"
+    err "Launcher 写入失败，当前版本未改变。"
+    return 1
+  fi
+
+  if [[ "${XRAY_MANAGER_FAIL_STEP:-}" == "core" ]]; then
+    run_priv rm -rf "$stage"
+    err "Core 写入失败，当前版本未改变。"
+    return 1
+  fi
+  if ! install_release_file "$core" "$stage/xray-manager-core.sh"; then
+    run_priv rm -rf "$stage"
+    err "Core 写入失败，当前版本未改变。"
+    return 1
+  fi
+
+  if ! verify_release_dir "$stage"; then
+    run_priv rm -rf "$stage"
+    err "暂存发布校验失败，当前版本未改变。"
+    return 1
+  fi
+
+  dest="$(choose_release_dir "$version")"
+  if [[ -n "$live" && "$dest" == "$live" ]]; then
+    run_priv rm -rf "$stage"
+    err "拒绝覆盖正在使用的发布目录。"
+    return 1
+  fi
+
+  run_priv rm -rf "$dest"
+  if [[ "${XRAY_MANAGER_FAIL_STEP:-}" == "switch" ]]; then
+    run_priv rm -rf "$stage"
+    err "原子切换前失败，当前版本未改变。"
+    return 1
+  fi
+  if ! run_priv mv "$stage" "$dest"; then
+    run_priv rm -rf "$stage" "$dest"
+    err "原子切换前失败，当前版本未改变。"
+    return 1
+  fi
+
+  if ! atomic_symlink "$dest" "$CURRENT_LINK"; then
+    run_priv rm -rf "$dest"
+    restore_current_link "$live"
+    err "原子切换 current 失败，当前版本未改变。"
+    return 1
+  fi
+
+  if ! selfcheck_current_release; then
+    err "新版本自检失败，正在恢复上一可用版本。"
+    restore_current_link "$live"
+    run_priv rm -rf "$dest"
+    return 1
+  fi
+
+  if [[ -n "$live" && "$live" != "$dest" ]]; then
+    atomic_symlink "$live" "$PREVIOUS_LINK" || warn "未能记录 previous 链接。"
+  fi
+
+  prune_old_releases
+  if ! ensure_compat_links; then
+    err "稳定入口更新失败，正在恢复上一可用版本。"
+    restore_current_link "$live"
+    return 1
+  fi
+}
+
+rollback_manager() {
+  local prev curr prev_ver
+  manager_layout_paths
+  migrate_legacy_layout || true
+
+  prev="$(resolve_link "$PREVIOUS_LINK")"
+  curr="$(resolve_link "$CURRENT_LINK")"
+  if [[ -z "$prev" || ! -d "$prev" ]]; then
+    err "没有可回滚的上一版本。"
+    return 1
+  fi
+  if [[ "$prev" == "$curr" ]]; then
+    err "previous 与 current 指向同一目录，拒绝回滚。"
+    return 1
+  fi
+  if ! verify_release_dir "$prev"; then
+    err "上一版本未通过校验，拒绝回滚。"
+    return 1
+  fi
+  prev_ver="$(read_project_version "$prev/xray-manager.sh")" || return 1
+  info "准备回滚到 $prev_ver"
+  atomic_symlink "$prev" "$CURRENT_LINK" || return 1
+  if ! selfcheck_current_release; then
+    err "回滚后自检失败，正在恢复。"
+    restore_current_link "$curr"
+    return 1
+  fi
+  if [[ -n "$curr" && -d "$curr" ]]; then
+    atomic_symlink "$curr" "$PREVIOUS_LINK" || warn "未能更新 previous 链接。"
+  fi
+  ensure_compat_links || return 1
+  ok "已回滚到 $prev_ver"
 }
 
 self_update_github() {
@@ -430,7 +771,32 @@ self_update() {
   esac
 }
 
+print_version() {
+  local current_dir previous_dir current_ver previous_ver
+  manager_layout_paths
+  echo "Xray Manager project: $PROJECT_VERSION"
+  echo "Xray Manager core   : $CORE_VERSION"
+  current_dir="$(resolve_link "$CURRENT_LINK")"
+  previous_dir="$(resolve_link "$PREVIOUS_LINK")"
+  if [[ -n "$current_dir" ]]; then
+    current_ver="$(read_project_version "$current_dir/xray-manager.sh" || printf unknown)"
+    echo "Installed current   : $current_ver"
+  fi
+  if [[ -n "$previous_dir" ]]; then
+    previous_ver="$(read_project_version "$previous_dir/xray-manager.sh" || printf unknown)"
+    echo "Installed previous  : $previous_ver"
+  fi
+}
+
 run_core() {
+  local self_dir
+  manager_layout_paths
+  self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -f "$self_dir/xray-manager-core.sh" ]]; then
+    CORE_PATH="$self_dir/xray-manager-core.sh"
+  elif [[ -L "$CURRENT_LINK" && -f "$CURRENT_LINK/xray-manager-core.sh" ]]; then
+    CORE_PATH="$CURRENT_LINK/xray-manager-core.sh"
+  fi
   if [[ ! -f "$CORE_PATH" ]]; then
     err "未找到核心脚本：$CORE_PATH"
     warn "请重新运行 Cloudflare 或私有 GitHub 安装入口。"
@@ -460,9 +826,11 @@ case "${1:-}" in
   --self-update-github)
     with_manager_lock "GitHub Manager 自更新" self_update_github
     ;;
+  --rollback)
+    with_manager_lock "Manager 回滚" rollback_manager
+    ;;
   --version|-V)
-    echo "Xray Manager project: $PROJECT_VERSION"
-    echo "Xray Manager core   : $CORE_VERSION"
+    print_version
     ;;
   --help|-h)
     usage

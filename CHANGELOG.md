@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## v1.8.3 / Core v1.8.3 - 2026-08-26
+
+### Changed
+- Launcher 与 Core 作为同一发布单元安装到 `releases/<version>/`，校验通过后原子切换 `current`，并保留 `previous` 供快速回滚。
+- `/usr/local/sbin/xraym` 与兼容 Core 路径改为指向 `current` 的稳定入口，避免更新中途留下新旧文件错配。
+- GitHub bootstrap、离线安装和两条自更新路径复用同一套事务安装函数。
+
+### Added
+- `xraym --rollback` 只切换到已校验的本地上一版本；连续执行会在 current/previous 之间切换。
+- 首次更新会把旧的固定路径安装无损迁移到发布目录，并保留原有配置、更新来源和 Cloudflare URL。
+
+### Tests
+- 新增原子发布回归测试，覆盖旧布局迁移、正常升级、同版本重装、Launcher/Core 写入失败、切换前失败、自检回滚、手动回滚、权限和 Token 不落盘。
+
 ## v1.8.2 / Core v1.8.2 - 2026-08-26
 
 ### Security

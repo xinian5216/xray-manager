@@ -88,7 +88,8 @@ write_state backup
 SUCCESS_BACKUP="$(backup_now)"
 validate_backup_archive "$SUCCESS_BACKUP"
 tar -xOf "$SUCCESS_BACKUP" ./backup-manifest.json |
-  jq -e '.format == 1 and .managerVersion == "1.8.2" and
+  jq -e --arg version "$SCRIPT_VERSION" \
+    '.format == 1 and .managerVersion == $version and
     .includes.configuration == true and .includes.certificates == true and
     .includes.wireguard == true' >/dev/null
 write_state current

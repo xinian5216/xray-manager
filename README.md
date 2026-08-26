@@ -2,7 +2,7 @@
 
 一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
 
-> 当前项目版本：**v1.8.2** · Core：**v1.8.2**
+> 当前项目版本：**v1.8.3** · Core：**v1.8.3**
 
 ## 核心功能
 
@@ -31,6 +31,7 @@
 - 完全离线导入 Xray ZIP、GeoIP 与 GeoSite
 - 已有 Xray 配置安全迁移、双重确认和迁移前完整备份
 - 主菜单直接更新 Xray Manager Launcher 与 Core
+- Manager 自更新原子切换 current/previous，失败自动回滚，支持 `xraym --rollback`
 
 ## 快速安装
 
@@ -197,12 +198,21 @@ grep -E ' (xray-manager.sh|lib/xray-manager-core.sh)$' SHA256SUMS | sha256sum -c
 ### 3. 完整手动安装
 
 ~~~bash
-sudo install -d -m 755 /usr/local/lib/xray-manager
-sudo install -m 755 xray-manager.sh /usr/local/sbin/xraym
+sudo install -d -m 755 /usr/local/lib/xray-manager/releases/manual
+sudo install -m 755 xray-manager.sh \
+  /usr/local/lib/xray-manager/releases/manual/xray-manager.sh
 sudo install -m 755 lib/xray-manager-core.sh \
+  /usr/local/lib/xray-manager/releases/manual/xray-manager-core.sh
+sudo ln -sfn /usr/local/lib/xray-manager/releases/manual \
+  /usr/local/lib/xray-manager/current
+sudo ln -sfn /usr/local/lib/xray-manager/current/xray-manager.sh \
+  /usr/local/sbin/xraym
+sudo ln -sfn /usr/local/lib/xray-manager/current/xray-manager-core.sh \
   /usr/local/lib/xray-manager/xray-manager-core.sh
 sudo xraym
 ~~~
+
+推荐优先使用 `install.sh` / `offline-install.sh`：它们会把 Launcher 与 Core 写入同一发布目录，再原子切换 `current`，并在失败时保留原版本。手工复制两个文件到固定路径仍然能启动，但没有 `previous` 回滚点。
 
 首次进入菜单后选择 **1) 一键安装 / 修复 Xray**。这里的“一键”只负责安装官方 Xray-core 和系统服务，不会重新下载 Xray Manager 项目。
 
@@ -248,7 +258,10 @@ Cloudflare 更新会再次提示输入安装密钥，密钥不会持久保存。
 
 ```bash
 sudo xraym --self-update --allow-downgrade
+sudo xraym --rollback
 ```
+
+`--rollback` 只切换到本机已经校验过的上一发布版本，不会重新下载；连续执行会在 current 与 previous 之间切换。
 
 Launcher 自更新和 Core 中所有会修改系统状态的主菜单操作共用一个 root-only 全局锁。同一时间只允许一个操作运行；若已有操作仍在执行，新操作会显示持锁进程并安全退出。崩溃遗留的锁会在确认持锁进程已不存在且锁目录结构安全后自动清理。
 
@@ -499,7 +512,7 @@ Xray-core / UFW / BBR / 配置文件
 2. 校验 SHA256。
 3. 确认 Core 使用独立安装路径，不覆盖 `/usr/local/sbin/xraym`；安装器仍保留对旧版 Core 的兼容补丁。
 4. 对 Launcher 与补丁后的 Core 执行 `bash -n`。
-5. 全部通过后才安装。
+5. 全部通过后才写入 `releases/<version>/`，原子切换 `current`；失败时保留原 current。
 
 GitHub Token 默认不会写入配置文件；交互输入完成后仅用于本次私有仓库下载。
 

@@ -49,8 +49,12 @@ Token 不会直接出现在命令历史中，输入时也不会回显。
 ## 默认安装路径
 
 ```text
-Launcher: /usr/local/sbin/xraym
+Launcher: /usr/local/sbin/xraym -> .../current/xray-manager.sh
 Core:     /usr/local/lib/xray-manager/xray-manager-core.sh
+          -> .../current/xray-manager-core.sh
+Releases: /usr/local/lib/xray-manager/releases/<version>/
+Current:  /usr/local/lib/xray-manager/current
+Previous: /usr/local/lib/xray-manager/previous
 ```
 
 ## 强制指定更新来源
@@ -69,7 +73,8 @@ sudo xraym --self-update-github
 4. 在本地为 Core 应用 Launcher 兼容补丁，防止 Core 覆盖 Launcher。
 5. 对 Launcher 与 Core 执行 `bash -n`。
 6. 安装/检查 `jq`、OpenSSL、`iproute2` 等运行依赖。
-7. 更新本机文件。
+7. 将 Launcher 与 Core 写入同一 `releases/<version>/` 目录，校验后再原子切换 `current`。
+8. 失败时保留原 current；需要时用 `xraym --rollback` 切回 previous。
 
 ## GitHub 方式的 IPv6-only 注意事项
 

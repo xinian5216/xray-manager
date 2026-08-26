@@ -14,7 +14,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 umask 027
 
-SCRIPT_VERSION="1.8.2"
+SCRIPT_VERSION="1.8.3"
 XRAY_BIN="/usr/local/bin/xray"
 XRAY_ROOT="/usr/local/etc/xray"
 CONF_DIR="${XRAY_ROOT}/conf.d"
@@ -732,12 +732,18 @@ JSON
 }
 
 install_manager_command() {
-  local self
+  local self dest
   self="$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")"
+  dest="${XRAY_MANAGER_CORE_INSTALL_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"
+  if [[ -L "$dest" ]]; then
+    dest="$(readlink -f "$dest" || printf '%s' "$dest")"
+  elif [[ -e /usr/local/lib/xray-manager/current/xray-manager-core.sh ]]; then
+    dest="$(readlink -f /usr/local/lib/xray-manager/current/xray-manager-core.sh || printf '%s' "$dest")"
+  fi
   if [[ -f "$self" ]]; then
-    install -d -m 755 "$(dirname "${XRAY_MANAGER_CORE_INSTALL_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}")"
-    install -m 755 "$self" "${XRAY_MANAGER_CORE_INSTALL_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"
-    ok "管理核心已安装：${XRAY_MANAGER_CORE_INSTALL_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"
+    install -d -m 755 "$(dirname "$dest")"
+    install -m 755 "$self" "$dest"
+    ok "管理核心已安装：$dest"
   fi
 }
 
