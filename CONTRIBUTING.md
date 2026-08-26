@@ -36,6 +36,8 @@ bash -n xray-manager.sh
 bash -n install.sh
 bash -n offline-install.sh
 bash -n cloudflare-install.sh
+bash -n scripts/select-xray-release.sh
+bash -n scripts/verify-xray-asset.sh
 bash -n scripts/maintainer-map.sh
 bash -n tests/maintainer-map.sh
 bash -n tests/bootstrap-install.sh
@@ -45,7 +47,7 @@ bash -n tests/bootstrap-install.sh
 
 ```bash
 shellcheck xray-manager.sh install.sh offline-install.sh cloudflare-install.sh \
-  scripts/maintainer-map.sh tests/maintainer-map.sh
+  scripts/maintainer-map.sh scripts/verify-xray-asset.sh tests/maintainer-map.sh
 ```
 
 ## 版本

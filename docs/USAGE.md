@@ -72,7 +72,7 @@ REALITY 向导会要求：
 可以：
 
 - 导入已有证书
-- 自动通过 acme.sh 签发
+- 自动通过固定版本的 acme.sh 签发（校验脚本 SHA256；无法校验时需预装）
 
 ## 4. 入站详情、编辑、用户与分享
 
@@ -234,7 +234,7 @@ WireGuard 创建入站时可自动生成客户端密钥对和 `10.66.66.x/32` �
 sudo xraym --self-update
 ```
 
-通过 Cloudflare 安装时会继续使用 Worker + 私有 R2，并再次提示安装密钥；通过 GitHub 安装时继续使用 Fine-grained PAT。也可用 `--self-update-cloudflare` 或 `--self-update-github` 强制指定。
+通过 Cloudflare 安装时会继续使用 Worker + 私有 R2，并再次提示安装密钥；更新前会核对外层发布清单、包 SHA256 和内嵌 `release-manifest.json`。通过 GitHub 安装时继续使用 Fine-grained PAT 与 `SHA256SUMS`。也可用 `--self-update-cloudflare` 或 `--self-update-github` 强制指定。
 
 更新器只接受并严格比较 `MAJOR.MINOR.PATCH` 三段式版本号。升级默认允许；相同版本会要求确认后重装；降级默认拒绝，确需回退时显式执行：
 

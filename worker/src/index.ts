@@ -1,5 +1,5 @@
 const RELEASE_PATH =
-  /^\/releases\/(latest-(?:amd64|arm64)\.(?:tar\.gz|sha256))$/;
+  /^\/releases\/(latest-(?:amd64|arm64)\.(?:tar\.gz|sha256)|manifest\.json)$/;
 
 async function secureEqual(left: string, right: string | undefined): Promise<boolean> {
   if (!left || !right) return false;

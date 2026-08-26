@@ -43,6 +43,7 @@ rg -n --fixed-strings '完整错误文本' .
 | 路由顺序、默认出口或冲突检测错误 | Core 中 `routing_*`、`*_route*` | `tests/smoke-configs.sh` |
 | TCP/UDP 端口转发、UFW 放行或规则清理错误 | Core 中 `*_port_forward*`、`*ufw*` | `tests/inbound-management.sh`、`tests/smoke-configs.sh` |
 | Xray/GeoData 延迟发布策略错误 | `scripts/select-xray-release.sh`、`scripts/select-geodata-release.sh`、`publish-r2.yml` | 两个 release-delay 测试、真实配置冒烟测试 |
+| 上游 ZIP 摘要、发布清单或更新信任链异常 | `scripts/verify-xray-asset.sh`、`publish-r2.yml`、Launcher、`cloudflare-install.sh` | `tests/xray-asset-integrity.sh`、`tests/cloudflare-update.sh` |
 | Worker 返回 401/403/404 或 R2 路径错误 | `worker/src/index.ts`、`worker/wrangler.jsonc` | `worker/test/index.spec.ts`、`npm run check` |
 | 版本、哈希或发包工作流失败 | `VERSION`、`XRAY_VERSION`、`SHA256SUMS`、两个 workflow | Validate 工作流 |
 
@@ -82,7 +83,8 @@ Core 目前保持单文件，是因为 Launcher、自更新和离线包只需把
 - 不默认接管系统默认路由，不默认将无认证 SOCKS/HTTP 代理暴露公网，不因 IPv6-only 自动启用 WARP。
 - `INSTALL_TOKEN` 只能作为 Worker Secret 或本次交互输入，不能写入仓库、命令示例、日志或持久状态。
 - WireGuard 客户端私钥只能进入 root-only 的 `${STATE_DIR}/wireguard/<tag>/` 和权限为 `600` 的备份；不能打印服务端私钥，也不能为仅导入公钥的 Peer 伪造客户端私钥。
-- R2 发布继续覆盖固定对象键；不要改成按日期无限新增。
+- R2 发布继续覆盖固定对象键（现为六个，含 `releases/manifest.json`）；不要改成按日期无限新增。
+- 上游 Xray ZIP 必须通过 URL/Tag/资产名与 SHA256 digest（或 `.dgst`）校验后才能打包；缺失或冲突时 fail closed，保留 R2 上一次已验证对象。
 
 ## 测试选择
 

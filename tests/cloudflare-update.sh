@@ -17,6 +17,7 @@ mkdir -p "$FIXTURES" "$MANAGER/lib" "$MOCK_BIN" "$INSTALL_ROOT"
 install -m 755 "$ROOT_DIR/xray-manager.sh" "$MANAGER/xray-manager.sh"
 install -m 755 "$ROOT_DIR/lib/xray-manager-core.sh" "$MANAGER/lib/xray-manager-core.sh"
 printf '9.9.9\n' >"$MANAGER/VERSION"
+printf '{"format":1,"manager_version":"9.9.9"}\n' >"$MANAGER/release-manifest.json"
 (
   cd "$MANAGER"
   sha256sum xray-manager.sh lib/xray-manager-core.sh >SHA256SUMS
@@ -25,6 +26,13 @@ printf '9.9.9\n' >"$MANAGER/VERSION"
 tar -C "$PACKAGE_ROOT" -czf "$FIXTURES/latest-amd64.tar.gz" xray-manager
 sha256sum "$FIXTURES/latest-amd64.tar.gz" |
   awk '{print $1}' >"$FIXTURES/latest-amd64.sha256"
+python3 - "$FIXTURES/latest-amd64.sha256" "$FIXTURES/manifest.json" <<'PY'
+import pathlib, sys
+sha = pathlib.Path(sys.argv[1]).read_text().strip()
+pathlib.Path(sys.argv[2]).write_text(
+    '{"format":1,"manager_version":"9.9.9","packages":{"amd64":{"file":"latest-amd64.tar.gz","sha256":"%s"}}}\n' % sha
+)
+PY
 
 cat >"$MOCK_BIN/curl" <<'SH'
 #!/usr/bin/env bash
