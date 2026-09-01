@@ -23,19 +23,32 @@ beforeEach(async () => {
 });
 
 describe("xray-manager download Worker", () => {
-  it("serves the public installer without authentication", async () => {
+  it("rejects the installer without authentication", async () => {
     const response = await fetchWorker("/install.sh");
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toBe("Bearer");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("serves the authenticated installer without public caching", async () => {
+    const response = await fetchWorker("/install.sh", {
+      headers: { authorization: "Bearer test-install-token" },
+    });
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe(
       "text/x-shellscript; charset=utf-8",
     );
-    expect(response.headers.get("cache-control")).toBe("public, max-age=300");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.text()).toContain("echo ok");
   });
 
-  it("serves HEAD metadata without a response body", async () => {
-    const response = await fetchWorker("/install.sh", { method: "HEAD" });
+  it("serves authenticated HEAD metadata without a response body", async () => {
+    const response = await fetchWorker("/install.sh", {
+      method: "HEAD",
+      headers: { authorization: "Bearer test-install-token" },
+    });
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-length")).toBe("28");
