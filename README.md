@@ -40,9 +40,13 @@
 这是没有 NAT64 的 IPv6-only VPS 的推荐入口，也适用于 IPv4 和双栈机器：
 
 ```bash
+read -rsp "安装密钥: " XRAY_MANAGER_INSTALL_TOKEN; echo
+export XRAY_MANAGER_INSTALL_TOKEN
 curl -fsSLo /tmp/xray-manager-install.sh \
+  -H "Authorization: Bearer ${XRAY_MANAGER_INSTALL_TOKEN}" \
   https://xray-manager-download.xinian5216.workers.dev/install.sh &&
-sudo bash /tmp/xray-manager-install.sh
+sudo -E bash /tmp/xray-manager-install.sh
+unset XRAY_MANAGER_INSTALL_TOKEN
 ```
 
 按提示输入独立的 Cloudflare 安装密钥。它不是 GitHub PAT，不要把密钥写进命令、README 或仓库。
@@ -56,7 +60,7 @@ sudo bash /tmp/xray-manager-install.sh
 
 VPS 只需预先具备引导所用的 `curl` 与解包所用的 `tar`；`jq`、OpenSSL、`unzip`、`iproute2` 等运行依赖由引导脚本通过系统软件源一并安装。引导脚本会：
 
-1. 通过 Cloudflare 的 IPv4 / IPv6 边缘获取公开入口。
+1. 通过 Cloudflare 的 IPv4 / IPv6 边缘鉴权获取安装入口。
 2. 使用 Bearer 安装密钥访问 Worker 后的私有 R2 对象。
 3. 根据 CPU 架构下载完整离线包、SHA256 和发布清单。
 4. 校验压缩包与清单，解压仓库、Xray 和 GeoData。
@@ -66,20 +70,23 @@ VPS 只需预先具备引导所用的 `curl` 与解包所用的 `tar`；`jq`、O
 
 通过该入口安装后，主菜单中的 `1) 安装 / 修复 Xray`、`6) 更新 Xray-core` 和 `7) 更新 GeoData` 会自动从 Worker 后的私有 R2 获取离线包，不再探测或访问 GitHub/XTLS，也不需要 NAT64、WARP 或下载代理。每次下载会安全提示输入安装密钥，密钥不会持久保存。
 
-GitHub Actions 会在相关文件合并到 `main` 后，使用经过配置冒烟测试的固定 Xray 版本重新构建两个架构的包，并覆盖 R2 中的六个对象。R2 保持私有，只有 `public/install.sh` 通过 Worker 公开读取；安装包必须通过 Worker 密钥访问。
+GitHub Actions 会在相关文件合并到 `main` 后，使用经过配置冒烟测试的固定 Xray 版本重新构建两个架构的包，并覆盖 R2 中的六个对象。R2 保持私有；`public/install.sh` 与所有安装包均必须通过 Worker 安装密钥访问。
 
 发布工作流始终写入固定的六个对象键：`public/install.sh`、两个 `latest-*.tar.gz`、对应的两个 `latest-*.sha256`，以及 `releases/manifest.json`。同名对象会原位覆盖，不会按日期或版本新增对象；本工作流管理的 R2 存储量不会随每日更新无限累积。
 
 Worker 源码位于 [`worker/`](worker/)，可将现有 `xray-manager-download` Worker 直接连接到本仓库构建部署，无需新建第二个 Worker。
 
-测试公开入口：
+测试鉴权入口：
 
 ```bash
+read -rsp "安装密钥: " XRAY_MANAGER_INSTALL_TOKEN; echo
 curl -6I \
+  -H "Authorization: Bearer ${XRAY_MANAGER_INSTALL_TOKEN}" \
   https://xray-manager-download.xinian5216.workers.dev/install.sh
+unset XRAY_MANAGER_INSTALL_TOKEN
 ```
 
-不带密钥访问 `/releases/latest-amd64.tar.gz` 返回 `401` 属于正常保护行为。
+不带密钥访问 `/install.sh` 或 `/releases/latest-amd64.tar.gz` 返回 `401` 属于正常保护行为。
 
 ### 方式二：私有 GitHub 一键安装
 
