@@ -45,7 +45,7 @@ function bearerToken(request: Request): string {
 
 function objectHeaders(
   object: R2Object,
-  isPublic: boolean,
+  isInstaller: boolean,
   downloadName: string | undefined,
 ): Headers {
   const headers = new Headers();
@@ -53,12 +53,9 @@ function objectHeaders(
   headers.set("etag", object.httpEtag);
   headers.set("content-length", String(object.size));
   headers.set("x-content-type-options", "nosniff");
-  headers.set(
-    "cache-control",
-    isPublic ? "public, max-age=300" : "private, no-store",
-  );
+  headers.set("cache-control", "private, no-store");
 
-  if (isPublic) {
+  if (isInstaller) {
     headers.set("content-type", "text/x-shellscript; charset=utf-8");
   } else if (downloadName) {
     headers.set("content-disposition", `attachment; filename="${downloadName}"`);
@@ -74,26 +71,26 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   const url = new URL(request.url);
   let objectKey: string;
-  let isPublic = false;
+  let isInstaller = false;
   let downloadName: string | undefined;
 
   if (url.pathname === "/install.sh") {
     objectKey = "public/install.sh";
-    isPublic = true;
+    isInstaller = true;
   } else {
     const releaseMatch = url.pathname.match(RELEASE_PATH);
     if (!releaseMatch) {
       return textResponse("Not Found", 404);
     }
 
-    if (!(await secureEqual(bearerToken(request), env.INSTALL_TOKEN))) {
-      return textResponse("Unauthorized", 401, {
-        "www-authenticate": "Bearer",
-      });
-    }
-
     downloadName = releaseMatch[1];
     objectKey = `releases/${downloadName}`;
+  }
+
+  if (!(await secureEqual(bearerToken(request), env.INSTALL_TOKEN))) {
+    return textResponse("Unauthorized", 401, {
+      "www-authenticate": "Bearer",
+    });
   }
 
   if (request.method === "HEAD") {
@@ -103,7 +100,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     }
     return new Response(null, {
       status: 200,
-      headers: objectHeaders(object, isPublic, downloadName),
+      headers: objectHeaders(object, isInstaller, downloadName),
     });
   }
 
@@ -114,7 +111,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   return new Response(object.body, {
     status: 200,
-    headers: objectHeaders(object, isPublic, downloadName),
+    headers: objectHeaders(object, isInstaller, downloadName),
   });
 }
 
