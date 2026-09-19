@@ -218,6 +218,7 @@ seed_legacy_cloudflare() {
   local fixture="$VERIFY_DIR/fixture-1.8.4"
   fetch_legacy_fixture 1.8.4 "$FIXTURE_SHA_184" "$fixture"
   rm -rf /usr/local/lib/xray-manager
+  rm -f /usr/local/sbin/xraym
   local rel="/usr/local/lib/xray-manager/releases/1.8.4"
   mkdir -p "$rel" /usr/local/sbin /etc/xray-manager/conf.d \
     /etc/xray-manager/wireguard/wg-client /etc/xray-manager/backups/mig /etc/xray-manager/certs
@@ -240,6 +241,7 @@ seed_legacy_github() {
   local fixture="$VERIFY_DIR/fixture-1.2.3"
   fetch_legacy_fixture 1.2.3 "$FIXTURE_SHA_123" "$fixture"
   rm -rf /usr/local/lib/xray-manager
+  rm -f /usr/local/sbin/xraym
   mkdir -p /usr/local/lib/xray-manager /usr/local/sbin /etc/xray-manager/conf.d
   install -m 755 "$fixture/xray-manager.sh" /usr/local/sbin/xraym
   install -m 755 "$fixture/lib/xray-manager-core.sh" \
