@@ -2,7 +2,20 @@
 
 ## Unreleased
 
+### Added
+- GitHub 来源下的“安装 / 修复 Xray”和“更新 Xray-core”支持版本选择：最新发布版（允许 Pre-release，默认）、最新稳定版、最近 15 个历史版本、手动输入 `vX.Y.Z`。版本选择按当前 CPU 架构过滤 Release ZIP 资产，并对 Stable / Pre-release 与发布日期做展示。
+- 新增 `xray_version_*` / `xray_github_*` / `xray_install_selected_version` 等单一职责函数；`run_systemd_installer` 支持向 XTLS 官方安装器追加参数，最终执行 `install --version vX.Y.Z`，配置下载代理时仍附带 `-p PROXY`。
+- Alpine/OpenRC 无法使用官方安装器的 `--version`，改为下载对应 Release 官方 ZIP，校验 GitHub API `digest` 与官方 `.dgst` 的 SHA256（两者并存时必须一致）后复用 `offline_import_xray`。
+- 新增 `tests/xray-version-select.sh`，覆盖版本标准化与数字比较、Stable/Pre-release/Draft/缺资产筛选、历史版本菜单、手动输入、降级默认拒绝、API digest 校验、安装参数转发、配置/服务失败自动回滚、Alpine 校验失败拒绝与 Cloudflare 兼容路径。
+
 ### Changed
+- GitHub 更新 Core 前备份 `/usr/local/bin/xray` 到 `/etc/xray-manager/backups/xray-core-时间/`；安装后依次校验二进制可执行、完整配置测试和服务运行状态，任一步失败自动恢复旧 Core 并重启。
+- 修复 `update_xray()` 在配置测试或服务重启失败时仍打印“Xray 更新完成”的问题；现在只有全部步骤成功才显示成功摘要（旧版本 / 新版本 / 来源 / 类型 / 配置测试 / 服务状态）。
+- GitHub Releases API 不可用时提供“重试 / 手动输入版本 / 返回”，手动输入也必须通过 Release 元数据验证；所有 GitHub API 请求遵循 `XRAY_DOWNLOAD_PROXY`。
+- Cloudflare/R2 来源保持现状：不访问 GitHub，只安装经过 CI 验证与观察期的版本，并明确提示该通道不提供任意版本选择。
+
+### Docs
+- README / USAGE / MAINTAINER_GUIDE / SECURITY 说明 Latest Published 与 Latest Stable 的区别、GitHub 默认可能安装 Pre-release、降级确认与失败回滚行为，以及 `XRAY_VERSION` 仍然只是 CI / R2 / 回退基线。
 - AI / 维护者第一次接触改为分层索引：`AGENTS.md` 只做路由，`scripts/maintainer-map.sh --ai` 与生成的 `docs/ai/` 按函数行号切片，避免把 6800 行 Core 读进上下文。
 
 ## v1.8.4 / Core v1.8.4 - 2026-08-26

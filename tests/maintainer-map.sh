@@ -48,7 +48,7 @@ fi
 
 ai_routing="$(bash "$MAP" --ai "路由规则顺序")"
 must_contain "$ai_routing" 'area: routing'
-must_contain "$ai_routing" '5647,6108p'
+must_contain "$ai_routing" '5763,6224p'
 must_contain "$ai_routing" 'tests/smoke-configs.sh'
 must_contain "$ai_routing" 'skip: README.md'
 
@@ -56,7 +56,7 @@ ai_ss="$(bash "$MAP" --ai "SS2022")"
 must_contain "$ai_ss" 'area: inbound-transport'
 must_contain "$ai_ss" 'add_shadowsocks'
 must_contain "$ai_ss" 'validate_shadowsocks_2022_secret'
-if printf '%s\n' "$ai_ss" | grep -q '1835,5028p'; then
+if printf '%s\n' "$ai_ss" | grep -q '1951,5144p'; then
   echo "SS2022 --ai dumped the whole inbound cluster" >&2
   exit 1
 fi

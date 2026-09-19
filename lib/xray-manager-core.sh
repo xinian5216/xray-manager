@@ -866,7 +866,8 @@ cloudflare_install_or_update_xray() {
 
 run_systemd_installer() {
   local script="$1" action="$2"
-  local args=("$action")
+  shift 2
+  local args=("$action" "$@")
   if [[ -n "${DOWNLOAD_PROXY:-}" ]]; then
     args+=("-p" "$DOWNLOAD_PROXY")
     env \
@@ -1524,6 +1525,91 @@ install_or_repair_xray() {
   prepare_download_network || return 1
   pkg_install_base
 
+  local target="" current manual_result prerelease="false" tag
+  current="$(xray_current_version 2>/dev/null || printf '未安装')"
+
+  # Version selection for GitHub installs. On any menu cancel we fall back to
+  # the official installer default (latest stable), matching the previous
+  # behaviour of "install/repair".
+  local releases_file asset_name latest_pub latest_stable
+  releases_file="$(mktemp)"
+  if xray_github_fetch_releases "$releases_file"; then
+    asset_name="$(xray_github_asset_name 2>/dev/null)" || asset_name=""
+    if [[ -n "$asset_name" ]]; then
+      target=""
+      prerelease="false"
+      while [[ -z "$target" ]]; do
+        echo
+        echo "========== Xray Core 版本选择 =========="
+        echo
+        echo "当前版本      : $current"
+        latest_pub="$(xray_github_latest_published "$releases_file" "$asset_name" || true)"
+        if [[ -n "$latest_pub" ]]; then
+          IFS=$'\t' read -r tag prerelease <<<"$latest_pub"
+          echo "最新发布版    : $tag [$(xray_release_label "$prerelease")]"
+        else
+          echo "最新发布版    : 未知"
+        fi
+        latest_stable="$(xray_github_latest_stable "$releases_file" "$asset_name" || true)"
+        if [[ -n "$latest_stable" ]]; then
+          IFS=$'\t' read -r tag prerelease <<<"$latest_stable"
+          echo "最新稳定版    : $tag [$(xray_release_label "$prerelease")]"
+        else
+          echo "最新稳定版    : 未知"
+        fi
+        echo
+        echo "1) 最新发布版 [默认]"
+        echo "2) 最新稳定版"
+        echo "3) 选择历史版本"
+        echo "4) 手动输入版本"
+        echo "0) 使用官方安装器默认版本"
+        local c
+        read -r -p "请选择 [1]: " c || true
+        case "${c:-1}" in
+          1)
+            if [[ -n "$latest_pub" ]]; then
+              IFS=$'\t' read -r target prerelease <<<"$latest_pub"
+            else
+              warn "没有可安装的最新发布版。"
+            fi
+            ;;
+          2)
+            if [[ -n "$latest_stable" ]]; then
+              IFS=$'\t' read -r target prerelease <<<"$latest_stable"
+            else
+              warn "没有可安装的最新稳定版。"
+            fi
+            ;;
+          3)
+            if manual_result="$(xray_history_menu "$releases_file" "$asset_name")"; then
+              IFS=$'\t' read -r target prerelease <<<"$manual_result"
+            fi
+            ;;
+          4)
+            if manual_result="$(xray_ask_manual_version "$releases_file")"; then
+              IFS=$'\t' read -r target prerelease <<<"$manual_result"
+            fi
+            ;;
+          0) break ;;
+          *) warn "无效选择。" ;;
+        esac
+      done
+    else
+      warn "当前架构（$(uname -m)）暂不支持版本选择，无法固定目标版本。"
+      if ! confirm "将使用官方安装器默认版本继续？"; then
+        rm -f "$releases_file"
+        return 1
+      fi
+    fi
+  else
+    warn "无法获取 GitHub Release 列表，无法固定目标版本。"
+    if ! confirm "将使用官方安装器默认版本继续？"; then
+      rm -f "$releases_file"
+      return 1
+    fi
+  fi
+  rm -f "$releases_file"
+
   local tmp
   tmp="$(mktemp -d)"
 
@@ -1531,10 +1617,40 @@ install_or_repair_xray() {
     info "使用 XTLS 官方 systemd 安装器安装/修复 Xray..."
     download_to_tmp "$OFFICIAL_INSTALLER" "$tmp/install-release.sh"
     chmod +x "$tmp/install-release.sh"
+    if [[ -n "$target" ]] && [[ "$target" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      if ! xray_confirm_install_target "$current" "$target" "$prerelease"; then
+        rm -rf "$tmp"
+        return 1
+      fi
+      if ! xray_install_selected_version "$target"; then
+        err "Xray 安装/修复未完成，已按上述日志处理。"
+        rm -rf "$tmp"
+        return 1
+      fi
+      systemctl daemon-reload
+      systemctl enable xray >/dev/null 2>&1 || true
+      install_manager_command
+      xray_print_update_summary "$current" "$target" "$prerelease"
+      return 0
+    fi
     run_systemd_installer "$tmp/install-release.sh" install
     systemctl daemon-reload
     systemctl enable xray >/dev/null 2>&1 || true
   elif [[ "$INIT_SYS" == "openrc" && "$PKG_MGR" == "apk" ]]; then
+    if [[ -n "$target" ]] && [[ "$target" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      if ! xray_confirm_install_target "$current" "$target" "$prerelease"; then
+        rm -rf "$tmp"
+        return 1
+      fi
+      if ! xray_install_selected_version "$target"; then
+        err "Xray 安装/修复未完成，已按上述日志处理。"
+        rm -rf "$tmp"
+        return 1
+      fi
+      install_manager_command
+      xray_print_update_summary "$current" "$target" "$prerelease"
+      return 0
+    fi
     info "使用 XTLS 官方 Alpine/OpenRC 安装器安装/修复 Xray..."
     download_to_tmp "$OFFICIAL_ALPINE_INSTALLER" "$tmp/install-release.sh"
     chmod +x "$tmp/install-release.sh"
@@ -6106,38 +6222,862 @@ routing_menu() {
   done
 }
 
+xray_version_normalize() {
+  local input="$1" trimmed
+  trimmed="${input#"${input%%[![:space:]]*}"}"
+  trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+  [[ "$trimmed" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  printf 'v%s' "${trimmed#v}"
+}
+
+# Numeric three-segment comparison; prints '>', '<' or '='. Never uses string
+# ordering so v26.10.0 > v26.9.9.
+xray_version_compare() {
+  local a="$1" b="$2" a_part b_part index
+  a="${a#v}"
+  b="${b#v}"
+  [[ "$a" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 2
+  [[ "$b" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 2
+  local -a a_parts b_parts
+  IFS=. read -r -a a_parts <<<"$a"
+  IFS=. read -r -a b_parts <<<"$b"
+  for index in 0 1 2; do
+    a_part="${a_parts[$index]}"
+    b_part="${b_parts[$index]}"
+    if (( 10#$a_part > 10#$b_part )); then
+      printf '>'
+      return 0
+    elif (( 10#$a_part < 10#$b_part )); then
+      printf '<'
+      return 0
+    fi
+  done
+  printf '='
+}
+
+xray_version_action() {
+  local cmp
+  cmp="$(xray_version_compare "$1" "$2")" || return 1
+  case "$cmp" in
+    '>') printf 'downgrade' ;;
+    '<') printf 'upgrade' ;;
+    '=') printf 'reinstall' ;;
+  esac
+}
+
+xray_current_version() {
+  local line
+  xray_exists || return 1
+  line="$(
+    "$XRAY_BIN" version 2>/dev/null | head -n 1 ||
+      "$XRAY_BIN" -version 2>/dev/null | head -n 1 || true
+  )"
+  [[ "$line" =~ Xray[[:space:]]+([^[:space:]]+) ]] || return 1
+  xray_version_normalize "${BASH_REMATCH[1]}" || return 1
+}
+
+# GitHub core release asset for the current CPU architecture.
+xray_github_asset_name() {
+  case "$(uname -m)" in
+    x86_64|amd64) printf 'Xray-linux-64.zip' ;;
+    aarch64|arm64) printf 'Xray-linux-arm64-v8a.zip' ;;
+    *)
+      err "当前架构暂无对应的 GitHub Xray 资产：$(uname -m)"
+      return 1
+      ;;
+  esac
+}
+
+xray_github_api() {
+  local path="$1" out="$2"
+  curl_net -fsSL --retry 3 --connect-timeout 12 --max-time 60 \
+    -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/XTLS/Xray-core$path" -o "$out"
+}
+
+# Download the release list and validate it is a JSON array.
+xray_github_fetch_releases() {
+  local out="$1"
+  xray_github_api "/releases?per_page=100" "$out" || return 1
+  jq -ce 'type == "array"' "$out" >/dev/null 2>&1 || {
+    err "GitHub Releases 返回了无法解析的内容。"
+    return 1
+  }
+}
+
+# Latest published release (drafts excluded, prereleases allowed) that ships
+# the asset for this architecture. Prints one line: tag<TAB>prerelease.
+# GitHub's /releases/latest only tracks stable, so this intentionally uses
+# the list endpoint.
+xray_github_latest_published() {
+  local releases_file="$1" asset_name="$2"
+  jq -r --arg asset "$asset_name" '
+    def has_asset:
+      ([.assets[]? | select(.name == $asset)] | length) == 1;
+    [.[] | select(
+        (.draft // false) != true and
+        (.tag_name | type == "string") and
+        ((.published_at // null) | type == "string") and
+        has_asset
+      )]
+    | sort_by(.published_at)
+    | last
+    | if . == null then empty else
+        "\(.tag_name)\t\(.prerelease // false)"
+      end
+  ' "$releases_file" 2>/dev/null
+}
+
+# Latest stable release (draft=false, prerelease=false) with our asset.
+xray_github_latest_stable() {
+  local releases_file="$1" asset_name="$2"
+  jq -r --arg asset "$asset_name" '
+    def has_asset:
+      ([.assets[]? | select(.name == $asset)] | length) == 1;
+    [.[] | select(
+        (.draft // false) != true and
+        (.prerelease // false) != true and
+        (.tag_name | type == "string") and
+        ((.published_at // null) | type == "string") and
+        has_asset
+      )]
+    | sort_by(.published_at)
+    | last
+    | if . == null then empty else
+        "\(.tag_name)\tfalse"
+      end
+  ' "$releases_file" 2>/dev/null
+}
+
+# Installable history entries, newest first, drafts excluded, our asset
+# required. Prints one "tag<TAB>prerelease<TAB>date" line per release.
+xray_github_release_history() {
+  local releases_file="$1" asset_name="$2" limit="${3:-15}"
+  jq -r --arg asset "$asset_name" --argjson limit "$limit" '
+    def has_asset:
+      ([.assets[]? | select(.name == $asset)] | length) == 1;
+    [.[] | select(
+        (.draft // false) != true and
+        (.tag_name | type == "string") and
+        ((.published_at // null) | type == "string") and
+        has_asset
+      )]
+    | sort_by(.published_at)
+    | reverse
+    | .[0:$limit]
+    | .[]
+    | "\(.tag_name)\t\(.prerelease // false)\t\(.published_at[0:10])"
+  ' "$releases_file" 2>/dev/null
+}
+
+# Verify that a normalized tag exists, is published (non-draft), and ships the
+# asset for this architecture. Prints "tag<TAB>prerelease" on success.
+xray_github_lookup_tag() {
+  local releases_file="$1" tag="$2" asset_name="$3"
+  jq -re --arg tag "$tag" --arg asset "$asset_name" '
+    def has_asset:
+      ([.assets[]? | select(.name == $asset)] | length) == 1;
+    [.[] | select(
+        (.draft // false) != true and
+        .tag_name == $tag and
+        (.tag_name | type == "string") and
+        ((.published_at // null) | type == "string") and
+        has_asset
+      )]
+    | if length != 1 then empty else
+        "\($tag)\t\(.[0].prerelease // false)"
+      end
+  ' "$releases_file" 2>/dev/null
+}
+
+xray_release_label() {
+  local prerelease="$1"
+  if [[ "$prerelease" == "true" ]]; then
+    printf 'Pre-release'
+  else
+    printf 'Stable'
+  fi
+}
+
+# Interactively normalize a user-supplied version and validate it against the
+# fetched release list. Prints "tag<TAB>prerelease" on success.
+xray_ask_manual_version() {
+  local releases_file="$1" input tag
+  input="$(ask_required "输入 Xray 版本（例如 v26.9.9）")" || return 1
+  tag="$(xray_version_normalize "$input" 2>/dev/null)" || {
+    warn "版本格式无效，仅接受 vX.Y.Z（例如 v26.9.9）。"
+    return 1
+  }
+  xray_github_lookup_tag "$releases_file" "$tag" "$(xray_github_asset_name)" || {
+    warn "GitHub 上没有找到可安装的 Release：$tag（不存在、Draft 或缺少当前架构 ZIP）。"
+    return 1
+  }
+}
+
+# Shown when the GitHub Releases API cannot be reached at all.
+# rc 0 + output "tag<TAB>prerelease": a validated manual version was chosen.
+# rc 0 + no output: retry succeeded, the release list file is populated and
+# the caller should continue with the normal menu.
+# rc 1: cancelled.
+xray_release_fetch_failure_menu() {
+  local releases_file="$1" tag
+  while true; do
+    err "无法获取 Xray Release 列表（网络、GitHub API 限额或 JSON 异常）。"
+    echo "1) 重试"
+    echo "2) 手动输入版本"
+    echo "0) 返回"
+    local c
+    read -r -p "请选择: " c || true
+    case "$c" in
+      1)
+        if xray_github_fetch_releases "$releases_file"; then
+          return 0
+        fi
+        ;;
+      2)
+        # Manual input still needs the tag metadata, so one targeted fetch is
+        # attempted; without it we refuse to install blindly.
+        if xray_github_fetch_releases "$releases_file"; then
+          tag="$(xray_ask_manual_version "$releases_file")" || continue
+          printf '%s' "$tag"
+          return 0
+        else
+          err "无法验证手动输入的版本元数据，拒绝盲目安装。"
+        fi
+        ;;
+      0) return 1 ;;
+      *) warn "无效选择。" ;;
+    esac
+  done
+}
+
+xray_confirm_downgrade() {
+  local current="$1" target="$2"
+  warn "检测到这是降级操作。"
+  echo "当前版本：$current"
+  echo "目标版本：$target"
+  echo
+  echo "降级可能导致现有配置与旧 Core 不兼容。"
+  confirm "确认继续？"
+}
+
+xray_report_target_action() {
+  local current="$1" target="$2" action
+  action="$(xray_version_action "$current" "$target")" || return 1
+  echo "当前版本：$current"
+  echo "目标版本：$target"
+  case "$action" in
+    upgrade) echo "操作类型：升级" ;;
+    downgrade) echo "操作类型：降级" ;;
+    reinstall) echo "操作类型：重装（版本相同）" ;;
+  esac
+}
+
+# Backup the live xray binary into the managed backup tree; prints the
+# backup directory path on success.
+xray_backup_core() {
+  local stamp backup n=0
+  [[ -f "$XRAY_BIN" ]] || return 1
+  ensure_layout
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  backup="$BACKUP_DIR/xray-core-$stamp"
+  while [[ -e "$backup" ]]; do
+    n=$((n + 1))
+    backup="$BACKUP_DIR/xray-core-$stamp-$n"
+  done
+  mkdir -p "$backup" || return 1
+  cp -a "$XRAY_BIN" "$backup/xray" || {
+    rm -rf "$backup"
+    return 1
+  }
+  printf '%s' "$backup"
+}
+
+# Restore a backup made by xray_backup_core; atomic rename into place.
+xray_restore_core() {
+  local backup="$1"
+  [[ -f "$backup/xray" ]] || return 1
+  mkdir -p "$(dirname "$XRAY_BIN")"
+  install -m 755 "$backup/xray" "${XRAY_BIN}.restore" || return 1
+  mv -f "${XRAY_BIN}.restore" "$XRAY_BIN" || {
+    rm -f "${XRAY_BIN}.restore"
+    return 1
+  }
+}
+
+xray_service_active() {
+  case "$INIT_SYS" in
+    systemd) systemctl is-active --quiet xray ;;
+    openrc) rc-service xray status >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Restore the pre-update binary and bring the old version back up.
+xray_rollback_after_failure() {
+  local backup="$1"
+  [[ -n "$backup" ]] || return 1
+  err "正在恢复更新前的 Xray Core..."
+  if xray_restore_core "$backup"; then
+    warn "已恢复旧 Xray：$backup"
+  else
+    err "恢复旧 Xray 失败，请手动检查 $backup。"
+    return 1
+  fi
+  service_restart >/dev/null 2>&1 || true
+}
+
+# Post-install verification: binary runs, current config tests, service comes
+# up. Rolls back to $backup on any failure. Returns 0 only if all checks pass.
+xray_verify_new_core() {
+  local backup="$1" rc=0
+
+  ensure_layout
+  if ! "$XRAY_BIN" version >/dev/null 2>&1 && ! "$XRAY_BIN" -version >/dev/null 2>&1; then
+    err "新安装的 Xray 无法执行。"
+    rc=1
+  elif ! test_config; then
+    err "新 Xray 无法通过当前配置测试。"
+    rc=1
+  fi
+
+  if (( rc == 0 )); then
+    if ! service_restart; then
+      err "服务重启失败。"
+      rc=1
+    elif ! xray_service_active; then
+      err "服务启动后未进入运行状态。"
+      rc=1
+    fi
+  fi
+
+  if (( rc != 0 )); then
+    xray_rollback_after_failure "$backup" || true
+    return 1
+  fi
+  return 0
+}
+
+xray_install_selected_version() {
+  # Install an exact version. Backs up the live binary first and rolls back
+  # automatically if the installer, binary check, config test or service
+  # restart fails. Returns 0 only when everything succeeded.
+  local target="$1" current backup=""
+  current="$(xray_current_version 2>/dev/null || printf '未安装')"
+
+  if [[ "$current" != "未安装" ]]; then
+    backup="$(xray_backup_core)" || {
+      err "无法备份当前 Xray，已停止更新。"
+      return 1
+    }
+    info "已备份当前 Xray：$backup"
+  fi
+
+  local tmp
+  tmp="$(mktemp -d)"
+
+  if [[ "$INIT_SYS" == "systemd" ]]; then
+    info "使用 XTLS 官方 systemd 安装器安装 Xray $target..."
+    if ! download_to_tmp "$OFFICIAL_INSTALLER" "$tmp/install-release.sh" ||
+       ! run_systemd_installer "$tmp/install-release.sh" install --version "$target"; then
+      err "官方安装器未能安装 Xray $target。"
+      xray_rollback_after_failure "$backup" || true
+      rm -rf "$tmp"
+      return 1
+    fi
+  elif [[ "$INIT_SYS" == "openrc" && "$PKG_MGR" == "apk" ]]; then
+    # The XTLS Alpine installer does not support --version, so fetch the
+    # verified release asset here and reuse the offline import logic.
+    info "为 Alpine 获取并校验 Xray $target 官方 ZIP..."
+    if ! xray_openrc_install_version "$target" "$tmp"; then
+      err "Alpine 安装 Xray $target 失败。"
+      xray_rollback_after_failure "$backup" || true
+      rm -rf "$tmp"
+      return 1
+    fi
+    configure_openrc_confdir
+  else
+    err "当前系统无法自动安装指定版本。"
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  rm -rf "$tmp"
+  xray_verify_new_core "$backup"
+}
+
+# Fallback for CPU architectures without a version-selectable asset: use the
+# official installer default version, but keep the backup + post-install
+# rollback guarantees of the versioned path.
+xray_install_official_default() {
+  local current backup="" tmp
+  current="$(xray_current_version 2>/dev/null || printf '未安装')"
+
+  if [[ "$current" != "未安装" ]]; then
+    backup="$(xray_backup_core)" || {
+      err "无法备份当前 Xray，已停止更新。"
+      return 1
+    }
+    info "已备份当前 Xray：$backup"
+  fi
+
+  tmp="$(mktemp -d)"
+  if [[ "$INIT_SYS" == "systemd" ]]; then
+    if ! download_to_tmp "$OFFICIAL_INSTALLER" "$tmp/install-release.sh" ||
+       ! run_systemd_installer "$tmp/install-release.sh" install; then
+      err "官方安装器未能更新 Xray。"
+      xray_rollback_after_failure "$backup" || true
+      rm -rf "$tmp"
+      return 1
+    fi
+  elif [[ "$INIT_SYS" == "openrc" && "$PKG_MGR" == "apk" ]]; then
+    if ! download_to_tmp "$OFFICIAL_ALPINE_INSTALLER" "$tmp/install-release.sh" ||
+       ! run_alpine_installer "$tmp/install-release.sh"; then
+      err "官方 Alpine 安装器未能更新 Xray。"
+      xray_rollback_after_failure "$backup" || true
+      rm -rf "$tmp"
+      return 1
+    fi
+    configure_openrc_confdir
+  else
+    err "当前系统无法自动更新。"
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  rm -rf "$tmp"
+  xray_verify_new_core "$backup"
+}
+
+# Alpine/OpenRC cannot use the official installer with --version, so download
+# the exact verified release ZIP and import it through the same offline path
+# used by Cloudflare and offline installs.
+xray_openrc_install_version() {
+  local target="$1" tmp="$2"
+  local releases_file release_json asset_name url dgst_url dgst_file="" verify_status
+
+  releases_file="$tmp/releases.json"
+  xray_github_fetch_releases "$releases_file" || return 1
+
+  asset_name="$(xray_github_asset_name)" || return 1
+  release_json="$(xray_github_release_for_tag "$releases_file" "$target" "$asset_name")" || {
+    err "GitHub 上没有找到 $target 的可安装资产。"
+    return 1
+  }
+
+  url="$(jq -r '.assets[0].browser_download_url' <<<"$release_json")"
+  [[ "$url" == "https://github.com/XTLS/Xray-core/releases/download/$target/$asset_name" ]] || {
+    err "拒绝非官方下载地址：$url"
+    return 1
+  }
+
+  download_to_tmp "$url" "$tmp/$asset_name" || return 1
+
+  # Fetch the official .dgst when the release publishes it, for cross-checking
+  # against the GitHub API digest.
+  dgst_url="$(
+    jq -r --arg tag "$target" --arg asset "${asset_name}.dgst" '
+      [.[] | select((.draft // false) != true and .tag_name == $tag)]
+      | if length == 1 then
+          [.[0].assets[]? | select(.name == $asset)
+           | select(.browser_download_url ==
+                    "https://github.com/XTLS/Xray-core/releases/download/\($tag)/\($asset)")]
+          | .[0].browser_download_url // empty
+        else empty end
+    ' "$releases_file" 2>/dev/null
+  )"
+  if [[ -n "$dgst_url" ]] && [[ "$dgst_url" == "https://github.com/XTLS/Xray-core/releases/download/$target/${asset_name}.dgst" ]]; then
+    if download_to_tmp "$dgst_url" "$tmp/$asset_name.dgst"; then
+      dgst_file="$tmp/$asset_name.dgst"
+    fi
+  fi
+
+  verify_status="$(xray_verify_downloaded_asset "$releases_file" "$target" "$asset_name" "$tmp/$asset_name" "$dgst_file")" || {
+    err "$asset_name SHA256 校验失败，拒绝安装。"
+    return 1
+  }
+  info "已通过官方摘要校验：$asset_name ($verify_status)"
+
+  # Keep the current geodata; only the core binary is being replaced here.
+  [[ -f "$ASSET_DIR/geoip.dat" && -f "$ASSET_DIR/geosite.dat" ]] || {
+    err "Alpine 指定版本安装需要现有 geoip.dat / geosite.dat；请先通过菜单 7 更新 GeoData。"
+    return 1
+  }
+
+  offline_import_xray "$tmp/$asset_name" "$ASSET_DIR/geoip.dat" "$ASSET_DIR/geosite.dat"
+}
+
+# Locate scripts/verify-xray-asset.sh relative to the installed Core, then run
+# it against the downloaded ZIP. Prints the verified SHA256.
+xray_verify_downloaded_asset() {
+  local releases_file="$1" tag="$2" asset_name="$3" downloaded="$4" dgst_file="${5:-}"
+  local verify_script="${XRAY_MANAGER_VERIFY_ASSET_SCRIPT:-}" dgst_args=()
+
+  if [[ -n "$dgst_file" ]]; then
+    dgst_args=(--dgst "$dgst_file")
+  fi
+
+  if [[ -z "$verify_script" ]]; then
+    local candidate
+    for candidate in \
+      "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/../scripts/verify-xray-asset.sh" \
+      "/usr/local/lib/xray-manager/current/scripts/verify-xray-asset.sh"
+    do
+      if [[ -f "$candidate" ]]; then
+        verify_script="$candidate"
+        break
+      fi
+    done
+  fi
+
+  if [[ -n "$verify_script" && -f "$verify_script" ]] && command -v jq >/dev/null 2>&1; then
+    # verify-xray-asset.sh expects a JSON that contains exactly one
+    # non-prerelease release for the tag; extract it from the full list.
+    # Pre-release picks deliberately skip this branch and use the API digest.
+    jq -ce --arg tag "$tag" '
+      [.[] | select(
+          (.draft // false) != true and
+          (.prerelease // false) != true and
+          .tag_name == $tag
+        )][0:1]
+    ' "$releases_file" >"$releases_file.stable" 2>/dev/null || true
+    if [[ -s "$releases_file.stable" ]] &&
+       jq -e 'type == "array" and length == 1' >/dev/null 2>&1 <"$releases_file.stable"; then
+      if bash "$verify_script" \
+        --json "$releases_file.stable" \
+        --tag "$tag" \
+        --name "$asset_name" \
+        --file "$downloaded" \
+        "${dgst_args[@]}"; then
+        rm -f "$releases_file.stable"
+        return 0
+      fi
+      rm -f "$releases_file.stable"
+      return 1
+    fi
+    rm -f "$releases_file.stable"
+  fi
+
+  # Fallback for pre-releases (the verify script is stable-only) and for
+  # installs where the script is not shipped: require the GitHub API digest
+  # and/or the official .dgst and compare locally. No unverifiable download
+  # is ever accepted.
+  xray_verify_api_digest "$releases_file" "$tag" "$asset_name" "$downloaded" "$dgst_file"
+}
+
+# Parse "SHA2-256= <64hex>" from an official Xray .dgst file.
+xray_parse_dgst_sha256() {
+  local file="$1" line value seen=""
+  [[ -f "$file" ]] || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^SHA2-256=[[:space:]]*([0-9A-Fa-f]{64})[[:space:]]*$ ]] || continue
+    value="${BASH_REMATCH[1],,}"
+    if [[ -n "$seen" && "$seen" != "$value" ]]; then
+      err "dgst 文件包含互相冲突的 SHA2-256：$file"
+      return 1
+    fi
+    seen="$value"
+  done <"$file"
+  [[ -n "$seen" ]] || return 1
+  printf '%s' "$seen"
+}
+
+# Verify the downloaded ZIP against the GitHub Release API digest
+# (sha256:<64hex>) and/or the official .dgst. Both sources, when available,
+# must agree. Prints the verified SHA256.
+xray_verify_api_digest() {
+  local releases_file="$1" tag="$2" asset_name="$3" downloaded="$4" dgst_file="${5:-}"
+  local api_expected="" dgst_expected="" expected actual
+
+  api_expected="$(
+    jq -re --arg tag "$tag" --arg asset "$asset_name" '
+      [.[] | select(
+          (.draft // false) != true and
+          .tag_name == $tag
+        )]
+      | if length != 1 then empty else
+          .[0] as $rel
+          | [$rel.assets[]? | select(.name == $asset)]
+          | if length != 1 then empty else
+              .[0].digest // empty
+            end
+        end
+    ' "$releases_file" 2>/dev/null || true
+  )"
+  if [[ -n "$api_expected" ]]; then
+    [[ "$api_expected" =~ ^sha256:([0-9a-fA-F]{64})$ ]] || {
+      err "GitHub API 摘要格式异常：$api_expected"
+      return 1
+    }
+    api_expected="${BASH_REMATCH[1],,}"
+  fi
+
+  if [[ -n "$dgst_file" ]]; then
+    dgst_expected="$(xray_parse_dgst_sha256 "$dgst_file")" || {
+      err "官方 .dgst 缺少有效 SHA2-256：$dgst_file"
+      return 1
+    }
+  fi
+
+  if [[ -n "$api_expected" && -n "$dgst_expected" && "$api_expected" != "$dgst_expected" ]]; then
+    err "GitHub API 摘要与官方 .dgst 不一致。"
+    return 1
+  fi
+  expected="${api_expected:-$dgst_expected}"
+  [[ -n "$expected" ]] || {
+    err "GitHub API 与 .dgst 均未提供 $asset_name 的 SHA256，拒绝安装。"
+    return 1
+  }
+
+  actual="$(offline_sha256_file "$downloaded")"
+  [[ "$actual" != "unavailable" ]] || {
+    err "本机无法计算 SHA256。"
+    return 1
+  }
+  [[ "$actual" == "$expected" ]] || {
+    err "SHA256 不匹配：期望 $expected，实际 $actual。"
+    return 1
+  }
+  printf '%s' "$expected"
+}
+
+# Resolve the exact release JSON (tag, prerelease, published_at, asset URL,
+# digest) for an already-normalized version tag.
+xray_github_release_for_tag() {
+  local releases_file="$1" tag="$2" asset_name="$3" release_json
+  release_json="$(
+    jq -ce --arg tag "$tag" --arg asset "$asset_name" '
+      [.[] | select(
+          (.draft // false) != true and
+          .tag_name == $tag and
+          (.tag_name | type == "string") and
+          ((.published_at // null) | type == "string")
+        )]
+      | if length != 1 then empty else .[0] end
+      | . + {
+          assets: [.assets[]? | select(.name == $asset)],
+          prerelease: (.prerelease // false)
+        }
+    ' "$releases_file" 2>/dev/null
+  )"
+  [[ -n "$release_json" ]] || return 1
+  jq -e '
+    (.tag_name | type == "string") and
+    (.prerelease | type == "boolean") and
+    (.published_at | type == "string") and
+    (.assets | length) == 1 and
+    (.assets[0].browser_download_url | type == "string")
+  ' >/dev/null 2>&1 <<<"$release_json" || return 1
+  printf '%s' "$release_json"
+}
+
+# Historical version picker. Prints "tag<TAB>prerelease" or empty on cancel.
+xray_history_menu() {
+  local releases_file="$1" asset_name="$2"
+  local -a history=()
+  local line count index c tag prerelease history_file
+
+  history_file="$(mktemp)"
+  xray_github_release_history "$releases_file" "$asset_name" >"$history_file" || true
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && history+=("$line")
+  done <"$history_file"
+  rm -f "$history_file"
+
+  (( ${#history[@]} > 0 )) || {
+    warn "没有可安装的历史版本。"
+    return 1
+  }
+  count="${#history[@]}"
+
+  while true; do
+    echo >&2
+    echo "========== 选择历史版本 ==========" >&2
+    for index in "${!history[@]}"; do
+      IFS=$'\t' read -r tag prerelease _date <<<"${history[$index]}"
+      printf '%2d) %-12s %s  [%s]\n' \
+        "$((index + 1))" "$tag" "$_date" "$(xray_release_label "$prerelease")" >&2
+    done
+    echo " 0) 取消" >&2
+    read -r -p "请选择 [1-$count]: " c || true
+    case "$c" in
+      0) return 1 ;;
+      ''|*[!0-9]*)
+        warn "请输入 0-$count 之间的编号。"
+        ;;
+      *)
+        if (( c >= 1 && c <= count )); then
+          IFS=$'\t' read -r tag prerelease _date <<<"${history[$((c - 1))]}"
+          printf '%s\t%s' "$tag" "$prerelease"
+          return 0
+        fi
+        warn "编号超出范围，请输入 0-$count。"
+        ;;
+    esac
+  done
+}
+
+# Post-install success summary shared by all GitHub install paths.
+xray_print_update_summary() {
+  local current="$1" target="$2" prerelease="$3"
+  ok "Xray 更新完成。"
+  echo
+  echo "Xray Core 更新完成"
+  echo
+  echo "旧版本：$current"
+  echo "新版本：$(xray_current_version 2>/dev/null || printf '%s' "$target")"
+  echo "来源：GitHub"
+  echo "类型：$(xray_release_label "$prerelease")"
+  echo
+  echo "配置测试：通过"
+  if xray_service_active; then
+    echo "服务状态：正常"
+  else
+    echo "服务状态：未知"
+  fi
+}
+
+# Confirm pre-release, downgrade and reinstall policy for a chosen target.
+# Downgrades are refused unless the user explicitly confirms.
+xray_confirm_install_target() {
+  local current="$1" target="$2" prerelease="$3" action
+
+  xray_report_target_action "$current" "$target" || return 1
+  if [[ "$(xray_release_label "$prerelease")" == "Pre-release" ]]; then
+    warn "$target 是 Pre-release 版本，可能不如稳定版可靠。"
+    confirm "继续安装 Pre-release？" || return 1
+  fi
+  if [[ "$current" != "未安装" ]]; then
+    action="$(xray_version_action "$current" "$target")" || return 1
+    case "$action" in
+      downgrade) xray_confirm_downgrade "$current" "$target" || return 1 ;;
+      reinstall) confirm "版本相同，重新安装 $target？" || return 1 ;;
+    esac
+  fi
+}
+
 update_xray() {
   need_xray || return
   ensure_layout
   load_network_state
   if uses_cloudflare_distribution; then
     info "更新来源为 Cloudflare，不访问 GitHub/XTLS。"
+    info "当前使用 Cloudflare/R2 已验证版本通道。"
+    info "该通道不提供任意 Xray Core 版本选择。"
     cloudflare_install_or_update_xray
     return
   fi
   prepare_download_network || return 1
   pkg_install_base
 
-  local tmp
-  tmp="$(mktemp -d)"
+  local current="" target="" tag="" prerelease="false" action="" manual_result=""
+  current="$(xray_current_version 2>/dev/null || printf '未安装')"
 
-  if [[ "$INIT_SYS" == "systemd" ]]; then
-    download_to_tmp "$OFFICIAL_INSTALLER" "$tmp/install-release.sh"
-    run_systemd_installer "$tmp/install-release.sh" install
-  elif [[ "$INIT_SYS" == "openrc" && "$PKG_MGR" == "apk" ]]; then
-    download_to_tmp "$OFFICIAL_ALPINE_INSTALLER" "$tmp/install-release.sh"
-    run_alpine_installer "$tmp/install-release.sh"
-    configure_openrc_confdir
-  else
-    err "当前系统无法自动更新。"
+  local releases_file asset_name latest_pub latest_stable manual_pick=0
+  releases_file="$(mktemp)"
+  if ! xray_github_fetch_releases "$releases_file"; then
+    # Failure menu: rc 1 = cancelled. rc 0 with output = validated manual pick
+    # (tag<TAB>prerelease). rc 0 with no output = retry succeeded.
+    manual_result="$(xray_release_fetch_failure_menu "$releases_file")" || {
+      rm -f "$releases_file"
+      return 1
+    }
+    if [[ "$manual_result" == v* ]]; then
+      IFS=$'\t' read -r target prerelease <<<"$manual_result"
+      manual_pick=1
+      rm -f "$releases_file"
+    fi
+  fi
+
+  asset_name="$(xray_github_asset_name 2>/dev/null)" || {
+    # Other architectures keep the official installer behaviour, but the
+    # target version cannot be pinned; never change it silently.
+    warn "当前架构（$(uname -m)）暂不支持版本选择，无法固定目标版本。"
+    rm -f "$releases_file"
+    if ! confirm "将使用官方安装器默认版本继续？"; then
+      return 1
+    fi
+    if ! xray_install_official_default; then
+      err "Xray 更新未完成，已按上述日志处理。"
+      return 1
+    fi
+    ok "Xray 更新完成。"
+    return 0
+  }
+  latest_pub="$(xray_github_latest_published "$releases_file" "$asset_name" || true)"
+  latest_stable="$(xray_github_latest_stable "$releases_file" "$asset_name" || true)"
+
+  if (( manual_pick == 0 )); then
+    target=""
+    prerelease="false"
+    while [[ -z "$target" ]]; do
+    echo
+    echo "========== Xray Core 版本选择 =========="
+    echo
+    echo "当前版本      : $current"
+    if [[ -n "$latest_pub" ]]; then
+      IFS=$'\t' read -r tag prerelease <<<"$latest_pub"
+      echo "最新发布版    : $tag [$(xray_release_label "$prerelease")]"
+    else
+      echo "最新发布版    : 未知"
+    fi
+    if [[ -n "$latest_stable" ]]; then
+      IFS=$'\t' read -r tag prerelease <<<"$latest_stable"
+      echo "最新稳定版    : $tag [$(xray_release_label "$prerelease")]"
+    else
+      echo "最新稳定版    : 未知"
+    fi
+    echo
+    echo "1) 最新发布版 [默认]"
+    echo "2) 最新稳定版"
+    echo "3) 选择历史版本"
+    echo "4) 手动输入版本"
+    echo "0) 取消"
+    local c
+    read -r -p "请选择 [1]: " c || true
+    case "${c:-1}" in
+      1)
+        if [[ -n "$latest_pub" ]]; then
+          IFS=$'\t' read -r target prerelease <<<"$latest_pub"
+        else
+          warn "没有可安装的最新发布版。"
+        fi
+        ;;
+      2)
+        if [[ -n "$latest_stable" ]]; then
+          IFS=$'\t' read -r target prerelease <<<"$latest_stable"
+        else
+          warn "没有可安装的最新稳定版。"
+        fi
+        ;;
+      3)
+        if manual_result="$(xray_history_menu "$releases_file" "$asset_name")"; then
+          IFS=$'\t' read -r target prerelease <<<"$manual_result"
+        fi
+        ;;
+      4)
+        if manual_result="$(xray_ask_manual_version "$releases_file")"; then
+          IFS=$'\t' read -r target prerelease <<<"$manual_result"
+        fi
+        ;;
+      0)
+        rm -f "$releases_file"
+        return 1
+        ;;
+      *) warn "无效选择。" ;;
+    esac
+    done
+    rm -f "$releases_file"
+  fi
+
+  xray_confirm_install_target "$current" "$target" "$prerelease" || return 1
+
+  if ! xray_install_selected_version "$target"; then
+    err "Xray 更新未完成，已按上述日志处理。"
     return 1
   fi
 
-  ensure_layout
-  test_config && service_restart
-  rm -rf "$tmp"
-  ok "Xray 更新完成。"
-  "$XRAY_BIN" version 2>/dev/null | head -n 1 || "$XRAY_BIN" -version 2>/dev/null | head -n 1 || true
+  xray_print_update_summary "$current" "$target" "$prerelease"
 }
 
 update_geodata() {

@@ -28,11 +28,11 @@ MAP_ROWS=(
   "routing|路由 routing 分流 rule geosite geoip CIDR 默认出口 domainStrategy|lib/xray-manager-core.sh|tests/smoke-configs.sh|docs/USAGE.md,README.md|routing,route"
   "port-forward|端口转发 forwarding forward TCP UDP 监听 目标端口|lib/xray-manager-core.sh|tests/smoke-configs.sh|docs/USAGE.md,README.md|port_forward"
   "config-safety|配置 写入 回滚 backup restore test config conf.d 安全删除 备份 恢复 归档|lib/xray-manager-core.sh|tests/smoke-configs.sh,tests/config-migration.sh,tests/backup-restore.sh|docs/MAINTAINER_GUIDE.md,README.md|safe_,backup,restore,test_config"
-  "xray-geodata|Xray-core core geodata geoip geosite 更新 延迟 release 14天 7天 digest sha256 摘要 完整性 integrity dgst 信任|lib/xray-manager-core.sh,scripts/select-xray-release.sh,scripts/select-geodata-release.sh,scripts/verify-xray-asset.sh,XRAY_VERSION,.github/workflows/publish-r2.yml|tests/xray-release-delay.sh,tests/geodata-release-delay.sh,tests/xray-asset-integrity.sh,tests/smoke-configs.sh|README.md,CHANGELOG.md,SECURITY.md|update_xray,update_geodata,release,verify"
+  "xray-geodata|Xray-core core geodata geoip geosite 更新 延迟 release 14天 7天 digest sha256 摘要 完整性 integrity dgst 信任 版本选择 指定版本 prerelease pre-release 预发布 最新发布版 最新稳定版 降级 回滚 backup rollback|lib/xray-manager-core.sh,scripts/select-xray-release.sh,scripts/select-geodata-release.sh,scripts/verify-xray-asset.sh,XRAY_VERSION,.github/workflows/publish-r2.yml|tests/xray-release-delay.sh,tests/xray-version-select.sh,tests/geodata-release-delay.sh,tests/xray-asset-integrity.sh,tests/smoke-configs.sh|README.md,CHANGELOG.md,SECURITY.md|update_xray,update_geodata,xray_version,xray_github,xray_release,xray_current_version,xray_history,xray_install_selected,xray_install_official,xray_openrc,xray_verify,xray_parse,xray_backup_core,xray_restore_core,xray_service_active,xray_rollback,xray_confirm_downgrade,xray_ask_manual,xray_report_target,xray_print_update"
   "worker-r2|Cloudflare Worker R2 401 403 404 Bearer token install.sh bundle 构建部署 清单 manifest|worker/src/index.ts,worker/wrangler.jsonc,worker/package.json,.github/workflows/publish-r2.yml,cloudflare-install.sh|worker/test/index.spec.ts,worker/package.json,tests/cloudflare-update.sh|worker/README.md,README.md,SECURITY.md|"
   "firewall-bbr|UFW 防火墙 SSH BBR sysctl 端口放行 规则清理|lib/xray-manager-core.sh|tests/inbound-management.sh,tests/smoke-configs.sh|docs/USAGE.md,README.md|ufw,bbr,ssh"
   "release|发版 version checksum SHA256 changelog release bundle 打包 清单|VERSION,XRAY_VERSION,SHA256SUMS,scripts/refresh-checksums.sh,scripts/verify-xray-asset.sh,.github/workflows/shellcheck.yml,.github/workflows/publish-r2.yml|scripts/maintainer-map.sh,.github/workflows/shellcheck.yml,tests/xray-asset-integrity.sh|CONTRIBUTING.md,CHANGELOG.md,README.md,SECURITY.md|"
-  "ci-tests|CI Actions ShellCheck test smoke 测试失败 workflow|.github/workflows/shellcheck.yml,.github/workflows/publish-r2.yml,tests/smoke-configs.sh|tests/inbound-management.sh,tests/maintainer-map.sh,tests/bootstrap-install.sh,tests/offline-install.sh,tests/cloudflare-update.sh,tests/cloudflare-core-download.sh,tests/config-migration.sh,tests/backup-restore.sh,tests/version-lock.sh,tests/manager-menu-update.sh,tests/atomic-release.sh,tests/xray-release-delay.sh,tests/geodata-release-delay.sh,tests/xray-asset-integrity.sh|CONTRIBUTING.md,docs/MAINTAINER_GUIDE.md|"
+  "ci-tests|CI Actions ShellCheck test smoke 测试失败 workflow|.github/workflows/shellcheck.yml,.github/workflows/publish-r2.yml,tests/smoke-configs.sh|tests/inbound-management.sh,tests/maintainer-map.sh,tests/bootstrap-install.sh,tests/offline-install.sh,tests/cloudflare-update.sh,tests/cloudflare-core-download.sh,tests/config-migration.sh,tests/backup-restore.sh,tests/version-lock.sh,tests/manager-menu-update.sh,tests/atomic-release.sh,tests/xray-release-delay.sh,tests/xray-version-select.sh,tests/geodata-release-delay.sh,tests/xray-asset-integrity.sh|CONTRIBUTING.md,docs/MAINTAINER_GUIDE.md|"
 )
 
 # area|file|start_function|end_function  (line ranges are computed; names are the stable contract)
@@ -46,7 +46,7 @@ CLUSTER_ANCHORS=(
   "outbound|lib/xray-manager-core.sh|csv_to_json_array|outbound_menu"
   "routing|lib/xray-manager-core.sh|routing_conflict_files|routing_menu"
   "port-forward|lib/xray-manager-core.sh|list_port_forwards|port_forward_menu"
-  "xray-geodata|lib/xray-manager-core.sh|update_xray|update_geodata"
+  "xray-geodata|lib/xray-manager-core.sh|xray_version_normalize|update_geodata"
   "firewall-bbr|lib/xray-manager-core.sh|detect_ssh_port|bbr_status"
 )
 

@@ -42,6 +42,7 @@ jobs:
           bash -n tests/atomic-release.sh
           bash -n tests/geodata-release-delay.sh
           bash -n tests/xray-release-delay.sh
+          bash -n tests/xray-version-select.sh
           bash -n tests/xray-asset-integrity.sh
       - name: Verify project version
         run: |
@@ -76,6 +77,7 @@ jobs:
           shellcheck -e SC2034 -S warning tests/atomic-release.sh
           shellcheck -S warning tests/geodata-release-delay.sh
           shellcheck -S warning tests/xray-release-delay.sh
+          shellcheck -S warning tests/xray-version-select.sh
           shellcheck -S warning tests/xray-asset-integrity.sh
       - name: Offline import test
         run: bash tests/offline-install.sh
@@ -97,6 +99,8 @@ jobs:
         run: bash tests/manager-menu-update.sh
       - name: Xray release delay policy test
         run: bash tests/xray-release-delay.sh
+      - name: Xray version selection test
+        run: bash tests/xray-version-select.sh
       - name: Xray asset integrity test
         run: bash tests/xray-asset-integrity.sh
       - name: GeoData release delay policy test

@@ -280,6 +280,43 @@ Launcher 自更新和 Core 中所有会修改系统状态的主菜单操作共�
 
 它会调用 Launcher 的同一套自更新逻辑，按机器原本记录的 GitHub / Cloudflare 来源更新；完成后可以立即重新载入新版菜单。
 
+### GitHub 来源下的 Xray Core 版本选择
+
+通过 GitHub 安装或更新 Xray-core 时，主菜单 `1) 一键安装 / 修复 Xray` 与 `6) 更新 Xray-core` 都会先显示版本选择：
+
+```text
+========== Xray Core 版本选择 ==========
+
+当前版本      : v26.7.28
+最新发布版    : v26.9.9 [Pre-release]
+最新稳定版    : v26.3.27 [Stable]
+
+1) 最新发布版 [默认]
+2) 最新稳定版
+3) 选择历史版本
+4) 手动输入版本
+0) 取消
+```
+
+- **最新发布版（默认）**：GitHub Releases 中最新发布、非 Draft、并且包含当前 CPU 架构 ZIP 资产的版本，允许 `prerelease=true`。注意它并不等于 GitHub `/releases/latest`，后者只跟踪最新 Stable Release。
+- **最新稳定版**：`draft=false` 且 `prerelease=false` 的最新版本。
+- **选择历史版本**：列出最近 15 个可安装 Release，显示发布日期与 `Stable` / `Pre-release`，编号选择；非法编号会重新提示。
+- **手动输入版本**：接受 `26.9.9` 或 `v26.9.9`，只接受严格 `vX.Y.Z` 三段格式，并会向 GitHub API 验证该 Release 与当前架构 ZIP 确实存在，不会把输入直接拼接进命令或 URL。
+
+选择 Pre-release 会再次确认。目标版本低于当前版本时识别为降级，默认拒绝；相同版本会询问是否重装。版本比较按数字逐段进行，`v26.10.0` 大于 `v26.9.9`。
+
+更新前会把当前 `/usr/local/bin/xray` 备份到 `/etc/xray-manager/backups/xray-core-时间/`。安装后必须依次通过“新二进制可执行 → `xray run -confdir ... -test` → 服务重启并进入运行状态”检查；任一步失败会自动恢复旧 Core 并重新启动，只有全部成功才显示 `Xray 更新完成`。
+
+Alpine/OpenRC 下官方 Alpine 安装器不支持 `--version`，管理器会直接下载对应 Release 的官方 ZIP，校验 GitHub API `digest` 与官方 `.dgst` 的 SHA256（两者都存在时必须一致）后，复用离线导入流程安装，不会裸覆盖 `/usr/local/bin/xray`。
+
+其他 CPU 架构（例如 arm32）没有可筛选的 Release 资产时，安装/更新会保持原来的官方安装器默认版本行为，仍然先备份并保留配置测试失败时的自动回滚。
+
+GitHub API 超时、限额或返回异常时，菜单会提供“重试 / 手动输入版本 / 返回”；手动输入同样需要验证 Release 元数据，验证不了就不会盲目下载安装。所有 GitHub 请求都会使用已配置的 `XRAY_DOWNLOAD_PROXY`。
+
+Cloudflare/R2 通道保持保守策略，只安装项目 CI 验证并经过 14 天观察期的版本，不提供任意版本选择，也不会因为该功能访问 GitHub。
+
+`XRAY_VERSION` 仍是 CI 基线、R2 打包和上游 API 异常时的回退版本；GitHub 在线安装用户选择的版本不受它限制。
+
 ### R2 中 Xray 与 GeoData 的更新策略
 
 Worker 本身不保存或打包 Xray，它只负责鉴权并读取私有 R2。R2 的 `latest-amd64.tar.gz` / `latest-arm64.tar.gz` 才包含 Manager、对应架构的 Xray ZIP、`geoip.dat` 和 `geosite.dat`。
@@ -504,6 +541,8 @@ Xray-core / UFW / BBR / 配置文件
 │   ├── smoke-configs.sh
 │   ├── offline-install.sh
 │   ├── cloudflare-update.sh
+│   ├── xray-release-delay.sh
+│   ├── xray-version-select.sh
 │   └── xray-asset-integrity.sh
 ├── worker/
 │   ├── src/index.ts
@@ -560,7 +599,7 @@ npm ci
 npm run check
 ```
 
-`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、事务化备份恢复、原子发布、上游资产完整性、离线导入、Worker 类型检查和 Workers 运行时测试。`Publish offline bundles to R2` 每天选择发布已满 14 天的最新稳定版 Xray 和至少 7 天前的 GeoData 快照，校验上游摘要并再次运行配置与 GeoData 测试，成功后才构建并上传 AMD64 / ARM64 离线包与发布清单。
+`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、事务化备份恢复、原子发布、上游资产完整性、Xray 版本选择（解析、Stable/Pre-release 筛选、降级保护、安装参数与失败回滚）、离线导入、Worker 类型检查和 Workers 运行时测试。`Publish offline bundles to R2` 每天选择发布已满 14 天的最新稳定版 Xray 和至少 7 天前的 GeoData 快照，校验上游摘要并再次运行配置与 GeoData 测试，成功后才构建并上传 AMD64 / ARM64 离线包与发布清单。
 
 ## License
 

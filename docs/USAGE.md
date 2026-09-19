@@ -27,11 +27,12 @@ sudo xraym
 2. 检测网络条件
 3. 在 IPv6-only VPS 上检查 NAT64 / DNS64 / 下载代理
 4. 安装基础依赖
-5. 调用 XTLS 官方安装器
-6. 初始化多文件配置目录
-7. 测试配置
-8. 启动 Xray
-9. 安装 `xraym` 管理命令
+5. 选择 Xray Core 版本（GitHub 来源；Cloudflare 来源直接使用 R2 已验证版本）
+6. 调用 XTLS 官方安装器或离线导入流程安装所选版本
+7. 初始化多文件配置目录
+8. 测试配置
+9. 启动 Xray
+10. 安装 `xraym` 管理命令
 
 ## 3. 添加入站
 
@@ -258,6 +259,35 @@ sudo xraym --rollback
 6) 更新 Xray-core
 7) 更新 GeoIP / GeoSite
 ```
+
+更新 Xray-core 时先选择版本（GitHub 来源）：
+
+```text
+========== Xray Core 版本选择 ==========
+
+当前版本      : v26.7.28
+最新发布版    : v26.9.9 [Pre-release]
+最新稳定版    : v26.3.27 [Stable]
+
+1) 最新发布版 [默认]
+2) 最新稳定版
+3) 选择历史版本
+4) 手动输入版本
+0) 取消
+```
+
+- `最新发布版` 是 GitHub Releases 中最新发布、非 Draft、且带当前架构 ZIP 的版本，可能是 Pre-release；它不等于 GitHub `/releases/latest`（那只代表最新 Stable）。
+- `最新稳定版` 要求 `draft=false` 且 `prerelease=false`。
+- `选择历史版本` 展示最近 15 个可安装版本及发布日期；非法编号会重新提示，`0` 取消。
+- `手动输入版本` 接受 `26.9.9` 或 `v26.9.9`，只接受 `vX.Y.Z` 格式，并向 GitHub API 验证 Release 与架构资产存在。
+
+Pre-release 需要再次确认；降级（目标版本低于当前版本）默认拒绝，只有显式确认才会执行；版本相同会询问是否重装。
+
+安装流程会自动备份当前 `/usr/local/bin/xray` 到 `/etc/xray-manager/backups/xray-core-时间/`，并在安装后依次执行二进制检查、`run -confdir ... -test` 和服务启动检查。失败会自动恢复旧 Core 并重新启动，不会停留在“新 Core 已覆盖但服务不可用”的状态。
+
+GitHub API 不可用（超时、限额、JSON 异常）时可以选择重试、手动输入版本或返回；手动输入也必须通过 Release 元数据验证。Alpine/OpenRC 会改用官方 Release ZIP + SHA256 校验（GitHub API digest 与 `.dgst` 交叉核对）并经离线导入安装。
+
+Cloudflare/R2 更新来源不会访问 GitHub，也不提供版本选择，继续使用项目 CI 验证并经过 14 天观察期的版本。
 
 ## 12. UFW
 

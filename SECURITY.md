@@ -52,7 +52,7 @@ Cloudflare 引导脚本将安装密钥写入权限为 600 的临时 curl 配置�
 
 安装与发布路径 fail closed，发现摘要或来源异常时停止，不覆盖本机或 R2 上一次已验证的内容。
 
-1. **上游 Xray**：R2 发布工作流只接受 `https://github.com/XTLS/Xray-core/releases/download/<tag>/Xray-linux-(64|arm64-v8a).zip`。优先使用 GitHub Release API 的 `digest`（`sha256:` + 64 位十六进制）；缺失或需交叉核验时读取同名 `.dgst` 的 `SHA2-256=`。摘要缺失、格式错误、重复资产、URL/Tag/架构不匹配或哈希不一致时，工作流失败且不上传。
+1. **上游 Xray**：R2 发布工作流只接受 `https://github.com/XTLS/Xray-core/releases/download/<tag>/Xray-linux-(64|arm64-v8a).zip`。优先使用 GitHub Release API 的 `digest`（`sha256:` + 64 位十六进制）；缺失或需交叉核验时读取同名 `.dgst` 的 `SHA2-256=`。摘要缺失、格式错误、重复资产、URL/Tag/架构不匹配或哈希不一致时，工作流失败且不上传。GitHub 在线安装/更新（包括用户显式选择的 Pre-release）使用同一信任链：只接受上述官方 URL 形态，SHA256 校验失败或两类摘要互相冲突时拒绝安装并保留旧 Core；旧 Core 会在安装前备份到 `/etc/xray-manager/backups/`，安装后配置测试或服务启动失败时自动恢复。
 2. **内嵌清单**：每个离线 tar 含 `release-manifest.json`，记录 Manager / Xray / GeoData 版本以及各架构 Xray ZIP 的 SHA256。该文件无法包含自身 tar 的哈希（写入后哈希会变）。
 3. **外层清单**：R2 的 `releases/manifest.json` 在打包完成后写入，包含内嵌清单字段、`built_at` 以及 `latest-amd64.tar.gz` / `latest-arm64.tar.gz` 的 SHA256。Worker 只允许这一固定对象名。
 4. **VPS**：Cloudflare 引导与自更新先核对 sidecar `.sha256` 与外层清单中的包摘要，解压后再要求内嵌清单的 `manager_version` 与 `VERSION` 一致。GitHub 路径继续用仓库 `SHA256SUMS` 校验 Launcher/Core。任一环节失败都拒绝安装或更新。

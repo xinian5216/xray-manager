@@ -21,6 +21,7 @@ on:
       - "scripts/select-xray-release.sh"
       - "scripts/verify-xray-asset.sh"
       - "tests/geodata-release-delay.sh"
+      - "tests/xray-version-select.sh"
       - "tests/xray-asset-integrity.sh"
       - "tests/smoke-configs.sh"
       - "tests/wireguard-management.sh"
@@ -87,6 +88,7 @@ jobs:
           bash -n scripts/verify-xray-asset.sh
           bash -n tests/wireguard-management.sh
           bash tests/geodata-release-delay.sh
+          bash tests/xray-version-select.sh
           bash tests/xray-asset-integrity.sh
           bash tests/wireguard-management.sh
 
