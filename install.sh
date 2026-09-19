@@ -184,12 +184,6 @@ install_runtime_dependencies() {
   fi
 }
 
-cleanup_legacy_update_state() {
-  # The Cloudflare/R2 update source was removed; drop the retired state files
-  # if a previous install created them. Failures are never fatal.
-  rm -f "$STATE_DIR/manager_update_source" "$STATE_DIR/cloudflare_url" 2>/dev/null || true
-}
-
 TOKEN="$(get_token)" || {
   err "没有 GitHub Token，无法读取 Private Repository。"
   warn "Fine-grained PAT 只需给 xray-manager 仓库 Contents: Read。"
@@ -224,7 +218,10 @@ bash -n "$TMP/lib/xray-manager-core.sh"
 info "安装 Xray Manager 运行依赖（含 jq、OpenSSL、iproute2）..."
 install_runtime_dependencies "$TMP/lib/xray-manager-core.sh"
 install_release_pair "$TMP/xray-manager.sh" "$TMP/lib/xray-manager-core.sh"
-cleanup_legacy_update_state
+# The Cloudflare/R2 update source was removed; drop the retired state files if
+# a previous install created them. Inlined because install_release_pair sources
+# the Launcher, which defines its own cleanup_legacy_update_state for /etc.
+rm -f "$STATE_DIR/manager_update_source" "$STATE_DIR/cloudflare_url" 2>/dev/null || true
 ok "Xray Manager 项目版本 $VERSION 安装完成。"
 echo "Launcher: $INSTALL_PATH"
 echo "Core    : $CORE_PATH"
