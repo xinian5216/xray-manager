@@ -57,7 +57,7 @@ CASE_LOG=""
 CASE_STARTED=0
 WATCHDOG_PID=""
 TEST_START=$SECONDS
-LOG_DIR="$(mktemp -d)"
+VERIFY_DIR="$(mktemp -d)"
 
 cleanup_all() {
   local rc=$?
@@ -71,7 +71,7 @@ cleanup_all() {
       tail -40 "$CASE_LOG" >&2 || true
     fi
   fi
-  rm -rf "$LOG_DIR"
+  rm -rf "$VERIFY_DIR"
 }
 trap cleanup_all EXIT
 
@@ -79,7 +79,7 @@ run_case() { # $1 case name, $2 case function
   local name="$1"
   shift
   CURRENT_CASE="$name"
-  CASE_LOG="$LOG_DIR/$name.log"
+  CASE_LOG="$VERIFY_DIR/$name.log"
   CASE_STARTED=$SECONDS
   printf 'CASE START: %s\n' "$name"
   "$@"
@@ -113,15 +113,15 @@ case_clean_environment() {
   git config --global --get-all credential.helper >/dev/null 2>&1 && \
     fail "存在全局 git credential helper"
   # Anonymous GitHub API limit is 60/hour; an authenticated token reports 5000.
-  curl -fsS -D "$LOG_DIR/rate.headers" "https://api.github.com/rate_limit" -o /dev/null
-  grep -iq '^x-ratelimit-limit: 60' "$LOG_DIR/rate.headers" || \
+  curl -fsS -D "$VERIFY_DIR/rate.headers" "https://api.github.com/rate_limit" -o /dev/null
+  grep -iq '^x-ratelimit-limit: 60' "$VERIFY_DIR/rate.headers" || \
     fail "匿名限速验证失败（x-ratelimit-limit != 60，疑似带凭据）"
 }
 
 case_fresh_install() {
-  curl -fsSLo "$LOG_DIR/installer.sh" "$REPO_RAW/install.sh"
+  curl -fsSLo "$VERIFY_DIR/installer.sh" "$REPO_RAW/install.sh"
   local out
-  out="$(timeout -k 10 "$INSTALLER_TIMEOUT" bash "$LOG_DIR/installer.sh" 2>&1)" || \
+  out="$(timeout -k 10 "$INSTALLER_TIMEOUT" bash "$VERIFY_DIR/installer.sh" 2>&1)" || \
     fail "install.sh 执行失败：$(tail -5 <<<"$out")"
   printf '%s\n' "$out" >"$CASE_LOG"
   grep -Fq "Xray Manager 项目版本 $EXPECTED_VERSION 安装完成" <<<"$out" || \
@@ -149,7 +149,7 @@ case_version_selection() {
   detect_platform
   load_network_state
   ASSET_NAME="$(xray_github_asset_name)" || fail "无法确定架构资产名"
-  RELEASES_FILE="$LOG_DIR/xray-releases.json"
+  RELEASES_FILE="$VERIFY_DIR/xray-releases.json"
   xray_github_fetch_releases "$RELEASES_FILE" || fail "GitHub Releases 列表获取失败"
   LATEST_PUBLISHED="$(xray_github_latest_published "$RELEASES_FILE" "$ASSET_NAME")"
   STABLE_LATEST="$(xray_github_latest_stable "$RELEASES_FILE" "$ASSET_NAME")"
@@ -172,7 +172,7 @@ case_four_version_modes() {
   detect_platform
   load_network_state
   ASSET_NAME="$(xray_github_asset_name)"
-  RELEASES_FILE="$LOG_DIR/xray-releases.json"
+  RELEASES_FILE="$VERIFY_DIR/xray-releases.json"
   [[ -s "$RELEASES_FILE" ]] || xray_github_fetch_releases "$RELEASES_FILE"
 
   local latest_tag stable_tag history_tag manual_tag target mode
@@ -208,7 +208,7 @@ case_geodata_update() {
 }
 
 seed_legacy_cloudflare() {
-  local fixture="$LOG_DIR/fixture-1.8.4"
+  local fixture="$VERIFY_DIR/fixture-1.8.4"
   fetch_legacy_fixture 1.8.4 "$FIXTURE_SHA_184" "$fixture"
   rm -rf /usr/local/lib/xray-manager
   local rel="/usr/local/lib/xray-manager/releases/1.8.4"
@@ -230,7 +230,7 @@ seed_legacy_cloudflare() {
 }
 
 seed_legacy_github() {
-  local fixture="$LOG_DIR/fixture-1.2.3"
+  local fixture="$VERIFY_DIR/fixture-1.2.3"
   fetch_legacy_fixture 1.2.3 "$FIXTURE_SHA_123" "$fixture"
   rm -rf /usr/local/lib/xray-manager
   mkdir -p /usr/local/lib/xray-manager /usr/local/sbin /etc/xray-manager/conf.d
@@ -242,9 +242,9 @@ seed_legacy_github() {
 
 case_legacy_cloudflare_r2() {
   seed_legacy_cloudflare
-  state_fingerprint >"$LOG_DIR/cf-before.txt"
+  state_fingerprint >"$VERIFY_DIR/cf-before.txt"
   local out
-  out="$(timeout -k 10 "$INSTALLER_TIMEOUT" bash "$LOG_DIR/installer.sh" 2>&1)" || \
+  out="$(timeout -k 10 "$INSTALLER_TIMEOUT" bash "$VERIFY_DIR/installer.sh" 2>&1)" || \
     fail "Cloudflare 旧版迁移失败：$(tail -5 <<<"$out")"
   grep -Fq '检测到旧版 Cloudflare/R2 安装' <<<"$out" || fail "缺少 Cloudflare 检测提示"
   grep -Fq 'Xray Manager 迁移完成' <<<"$out" || fail "缺少迁移汇总"
@@ -256,15 +256,15 @@ case_legacy_cloudflare_r2() {
   fi
   [[ "$(read_project_version_from "$(readlink -f /usr/local/lib/xray-manager/previous)/xray-manager.sh")" == "1.8.4" ]] || \
     fail "previous 未保留 v1.8.4"
-  state_fingerprint >"$LOG_DIR/cf-after.txt"
-  cmp -s "$LOG_DIR/cf-before.txt" "$LOG_DIR/cf-after.txt" || fail "迁移修改了 Xray 数据"
+  state_fingerprint >"$VERIFY_DIR/cf-after.txt"
+  cmp -s "$VERIFY_DIR/cf-before.txt" "$VERIFY_DIR/cf-after.txt" || fail "迁移修改了 Xray 数据"
 }
 
 case_legacy_github_private() {
   seed_legacy_github
-  state_fingerprint >"$LOG_DIR/gh-before.txt"
+  state_fingerprint >"$VERIFY_DIR/gh-before.txt"
   local out
-  out="$(timeout -k 10 "$INSTALLER_TIMEOUT" bash "$LOG_DIR/installer.sh" 2>&1)" || \
+  out="$(timeout -k 10 "$INSTALLER_TIMEOUT" bash "$VERIFY_DIR/installer.sh" 2>&1)" || \
     fail "GitHub Private 旧版迁移失败：$(tail -5 <<<"$out")"
   grep -Fq '检测到旧版 GitHub Private 安装' <<<"$out" || fail "缺少 GitHub Private 提示"
   grep -Fq '以后默认无需 PAT' <<<"$out" || fail "缺少无需 PAT 提示"
@@ -273,8 +273,8 @@ case_legacy_github_private() {
   [[ ! -e /etc/xray-manager/manager_update_source ]] || fail "旧更新源状态未清理"
   [[ "$(read_project_version_from "$(readlink -f /usr/local/lib/xray-manager/previous)/xray-manager.sh")" == "1.2.3" ]] || \
     fail "previous 未保留 v1.2.3"
-  state_fingerprint >"$LOG_DIR/gh-after.txt"
-  cmp -s "$LOG_DIR/gh-before.txt" "$LOG_DIR/gh-after.txt" || fail "迁移修改了 Xray 数据"
+  state_fingerprint >"$VERIFY_DIR/gh-after.txt"
+  cmp -s "$VERIFY_DIR/gh-before.txt" "$VERIFY_DIR/gh-after.txt" || fail "迁移修改了 Xray 数据"
 }
 
 # ---------------------------------------------------------------------------

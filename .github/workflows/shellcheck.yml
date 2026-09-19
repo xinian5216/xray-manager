@@ -42,6 +42,7 @@ jobs:
           bash -n tests/xray-version-select.sh
           bash -n tests/xray-asset-integrity.sh
           bash -n tests/legacy-manager-upgrade.sh
+          bash -n tests/anonymous-public-verify.sh
       - name: Verify project version
         run: |
           test "$(tr -d '[:space:]' < VERSION)" = "$(sed -n 's/^PROJECT_VERSION="\(.*\)"/\1/p' xray-manager.sh | head -n1)"
@@ -74,6 +75,7 @@ jobs:
           shellcheck -S warning tests/xray-version-select.sh
           shellcheck -S warning tests/xray-asset-integrity.sh
           shellcheck -S warning tests/legacy-manager-upgrade.sh
+          shellcheck -S warning tests/anonymous-public-verify.sh
       - name: Offline import test
         run: bash tests/offline-install.sh
       - name: Bootstrap dependency test
