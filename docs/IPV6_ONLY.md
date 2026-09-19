@@ -62,21 +62,15 @@ NAT64 才是真正把 IPv6 流量转换到 IPv4 网络的网关。
 
 ## 没有 NAT64 怎么办
 
-### Cloudflare Worker + 私有 R2（推荐）
+### IPv6 可达代理（推荐）
 
-项目提供同时支持 IPv4 / IPv6 的公开引导入口，完整离线包保存在私有 R2，并由 Worker 校验独立安装密钥：
+如果 VPS 能通过 IPv6 访问一台可以访问 IPv4 的代理，设置 `XRAY_DOWNLOAD_PROXY` 即可让安装、自更新、Xray 更新和 GeoData 更新统一走代理：
 
 ```bash
-curl -fsSLo /tmp/xray-manager-install.sh \
-  https://xray-manager-download.xinian5216.workers.dev/install.sh &&
-sudo bash /tmp/xray-manager-install.sh
+export XRAY_DOWNLOAD_PROXY='socks5h://[2001:db8::10]:1080'
 ```
 
-该方式不需要 VPS 访问 GitHub、XTLS 或 GeoData 下载站。引导脚本会根据 `x86_64/amd64` 或 `aarch64/arm64` 下载对应包、验证 SHA256 与发布清单，并通过系统软件源安装 `jq`、OpenSSL、`unzip`、`iproute2` 等运行依赖，再进行本地安装。
-
-通过该入口安装后，`xraym --self-update` 会记住 Cloudflare 更新来源；主菜单中的 Xray 安装/修复、Xray-core 更新和 GeoData 更新也会自动复用 Worker + R2，不再访问 GitHub/XTLS。更新时再次输入安装密钥即可，不需要代理、NAT64 或 WARP。
-
-主菜单 `16) 更新 Xray Manager 脚本` 等价于 `sudo xraym --self-update`。R2 离线包每天检查上游，但 Xray 新稳定版需经过 14 天观察期，GeoData 快照需经过 7 天观察期。上游摘要、SHA256、配置与 GeoData 测试全部通过后才会覆盖上一次可用包。
+主菜单 `13) IPv6-only / NAT64 网络助手` 也可以交互设置并保存这个代理。
 
 如果机器原先已经安装 Xray，菜单 1 和离线安装流程会先识别 systemd / OpenRC 当前使用的配置。发现旧 `config.json` 或旧配置目录时，必须连续确认两次才会迁移；任意一次取消都不会覆盖配置或服务。迁移前备份保存到 `/etc/xray-manager/backups/pre-migration-时间/`，旧配置本身不会删除，且新目录必须通过 Xray 配置测试后才会切换。
 
@@ -102,12 +96,12 @@ socks5h://[2001:db8::10]:1080
 http://user:password@[2001:db8::10]:8080
 ```
 
-该代理主要用于 GitHub 安装来源，或 Worker 暂时不可达时的备用流程：
+该代理用于所有 GitHub / XTLS / GeoData 在线请求：
 
-- Xray 安装
-- Xray 更新
+- GitHub 私有仓库安装与 `xraym --self-update`
+- Xray 安装 / 更新
 - GeoData 更新
-- GitHub / XTLS 下载
+- XTLS 官方安装器下载
 
 ### 完全手动离线安装
 
@@ -179,11 +173,10 @@ WARP 会创建虚拟网络接口，并可能影响：
 因此脚本优先顺序是：
 
 ```text
-Cloudflare Worker + 私有 R2
-→ 原生 IPv6 可达的上游
+原生 IPv6 可达的 GitHub 上游
 → 已有 NAT64/DNS64
 → 可用 NAT64 + DNS64
-→ IPv6 可达下载代理
-→ 手动完整离线导入
+→ IPv6 可达下载代理（XRAY_DOWNLOAD_PROXY）
+→ 手动完整离线导入（offline-install.sh）
 → 用户自行决定是否配置 WARP
 ```

@@ -26,8 +26,8 @@
 - UFW、BBR、日志、配置测试、备份恢复
 - 备份内置版本清单与唯一文件名；恢复前拒绝危险归档，服务异常时自动切回原配置
 - IPv6-only、NAT64 / DNS64、IPv6 可达下载代理
-- Cloudflare Worker + 私有 R2 的 IPv4 / IPv6 一键安装与后续自更新
-- Worker 源码、Wrangler 配置与运行时测试由 GitHub 版本化维护
+- 单一在线来源：私有 GitHub 仓库安装与自更新，Xray Core 来自 XTLS/Xray-core Releases
+- `XRAY_DOWNLOAD_PROXY` 支持 HTTP / HTTPS / SOCKS5 / SOCKS5H 下载代理
 - 完全离线导入 Xray ZIP、GeoIP 与 GeoSite
 - 已有 Xray 配置安全迁移、双重确认和迁移前完整备份
 - 主菜单直接更新 Xray Manager Launcher 与 Core
@@ -35,62 +35,9 @@
 
 ## 快速安装
 
-### 方式一：Cloudflare Worker + 私有 R2（纯 IPv6 首选）
+在线安装只有一个来源：私有 GitHub 仓库。
 
-这是没有 NAT64 的 IPv6-only VPS 的推荐入口，也适用于 IPv4 和双栈机器：
-
-```bash
-read -rsp "安装密钥: " XRAY_MANAGER_INSTALL_TOKEN; echo
-export XRAY_MANAGER_INSTALL_TOKEN
-curl -fsSLo /tmp/xray-manager-install.sh \
-  -H "Authorization: Bearer ${XRAY_MANAGER_INSTALL_TOKEN}" \
-  https://xray-manager-download.xinian5216.workers.dev/install.sh &&
-sudo -E bash /tmp/xray-manager-install.sh
-unset XRAY_MANAGER_INSTALL_TOKEN
-```
-
-按提示输入独立的 Cloudflare 安装密钥。它不是 GitHub PAT，不要把密钥写进命令、README 或仓库。
-
-当前分发支持：
-
-| VPS 架构 | 离线包 |
-| --- | --- |
-| `x86_64` / `amd64` | `latest-amd64.tar.gz` |
-| `aarch64` / `arm64` | `latest-arm64.tar.gz` |
-
-VPS 只需预先具备引导所用的 `curl` 与解包所用的 `tar`；`jq`、OpenSSL、`unzip`、`iproute2` 等运行依赖由引导脚本通过系统软件源一并安装。引导脚本会：
-
-1. 通过 Cloudflare 的 IPv4 / IPv6 边缘鉴权获取安装入口。
-2. 使用 Bearer 安装密钥访问 Worker 后的私有 R2 对象。
-3. 根据 CPU 架构下载完整离线包、SHA256 和发布清单。
-4. 校验压缩包与清单，解压仓库、Xray 和 GeoData。
-5. 通过系统软件源安装 Xray Manager 的完整运行依赖。
-6. 调用 `offline-install.sh` 完成本地安装；Xray、GeoData 与项目文件不再访问其他外网。
-7. 记录 Cloudflare 更新来源，以后管理器、Xray-core 和 GeoData 更新继续使用同一通道。
-
-通过该入口安装后，主菜单中的 `1) 安装 / 修复 Xray`、`6) 更新 Xray-core` 和 `7) 更新 GeoData` 会自动从 Worker 后的私有 R2 获取离线包，不再探测或访问 GitHub/XTLS，也不需要 NAT64、WARP 或下载代理。每次下载会安全提示输入安装密钥，密钥不会持久保存。
-
-GitHub Actions 会在相关文件合并到 `main` 后，使用经过配置冒烟测试的固定 Xray 版本重新构建两个架构的包，并覆盖 R2 中的六个对象。R2 保持私有；`public/install.sh` 与所有安装包均必须通过 Worker 安装密钥访问。
-
-发布工作流始终写入固定的六个对象键：`public/install.sh`、两个 `latest-*.tar.gz`、对应的两个 `latest-*.sha256`，以及 `releases/manifest.json`。同名对象会原位覆盖，不会按日期或版本新增对象；本工作流管理的 R2 存储量不会随每日更新无限累积。
-
-Worker 源码位于 [`worker/`](worker/)，可将现有 `xray-manager-download` Worker 直接连接到本仓库构建部署，无需新建第二个 Worker。
-
-测试鉴权入口：
-
-```bash
-read -rsp "安装密钥: " XRAY_MANAGER_INSTALL_TOKEN; echo
-curl -6I \
-  -H "Authorization: Bearer ${XRAY_MANAGER_INSTALL_TOKEN}" \
-  https://xray-manager-download.xinian5216.workers.dev/install.sh
-unset XRAY_MANAGER_INSTALL_TOKEN
-```
-
-不带密钥访问 `/install.sh` 或 `/releases/latest-amd64.tar.gz` 返回 `401` 属于正常保护行为。
-
-### 方式二：私有 GitHub 一键安装
-
-GitHub API 可达时，也可以从 Private Repository 安装。创建只针对 `xray-manager`、仅授予 `Contents: Read-only` 的 Fine-grained PAT：
+创建只针对 `xray-manager`、仅授予 `Contents: Read-only` 的 Fine-grained PAT：
 
 ```bash
 read -rsp "GitHub Token: " GH_TOKEN; echo; export GH_TOKEN; \
@@ -106,11 +53,13 @@ rc=$?; rm -f /tmp/xray-manager-install.sh; unset GH_TOKEN; (exit $rc)
 
 仓库是 Private，直接访问 `raw.githubusercontent.com/.../install.sh` 或不带 Token 请求 API 会返回 `404`，这是 GitHub 隐藏私有仓库的正常行为。如果上面的命令也返回 `404`，请检查 PAT 是否确实选择了 `xray-manager`、仍在有效期内，并具有 `Contents: Read-only` 权限。
 
-这种方式的安装和后续 `xraym --self-update` 都需要能够访问 `api.github.com`，或者设置 `XRAY_DOWNLOAD_PROXY`。
+这种方式的安装和后续 `xraym --self-update` 都需要能够访问 `api.github.com`，或者设置 `XRAY_DOWNLOAD_PROXY`。PAT 只在本次下载使用，不会持久化、不会写入日志、也不会拼进 URL。
+
+安装后，主菜单 `1) 安装 / 修复 Xray`、`6) 更新 Xray-core` 和 `7) 更新 GeoData` 都直接从 XTLS 官方 GitHub Release 获取资源，并支持在菜单里选择 Xray Core 版本（见下文）。
 
 ## 纯 IPv6 VPS：其他备用方式
 
-如果 Worker 入口也无法访问，可以使用真正的手动离线导入，或借助另一台双栈 VPS 建立临时代理。
+如果 GitHub API 无法访问，可以设置 `XRAY_DOWNLOAD_PROXY`、使用真正的手动离线导入，或借助另一台双栈 VPS 建立临时代理。
 
 ### 完全手动离线导入
 
@@ -176,10 +125,9 @@ WARP 可以提供 IPv4 出口，但会修改接口、路由和 DNS，远程操�
 | **lib/xray-manager-core.sh** | 完整交互菜单和 Xray 管理功能 | 必需 |
 | **SHA256SUMS** | 校验文件是否完整 | 推荐 |
 | **VERSION** | 查看仓库项目版本 | 可选 |
-| **XRAY_VERSION** | R2 与测试共同使用的 Xray 固定版本 | 发布维护 |
+| **XRAY_VERSION** | CI 使用的 Xray Core 测试基准版本 | 发布维护 |
 | **install.sh** | 私有仓库一键安装器 | 手动安装不需要 |
 | **offline-install.sh** | Xray + GeoData 完全离线安装器 | 纯离线首次安装必需 |
-| **cloudflare-install.sh** | Worker + 私有 R2 引导脚本 | Cloudflare 安装入口 |
 
 ### 1. 下载文件
 
@@ -246,20 +194,13 @@ sudo bash lib/xray-manager-core.sh
 
 ## 更新
 
-按安装来源自动选择 GitHub 或 Cloudflare：
+`xraym --self-update` 只有一种行为：从私有 GitHub 仓库安全更新 Launcher + Core。
 
 ```bash
 sudo xraym --self-update
 ```
 
-也可以强制指定：
-
-```bash
-sudo xraym --self-update-cloudflare
-sudo xraym --self-update-github
-```
-
-Cloudflare 更新会再次提示输入安装密钥，密钥不会持久保存。`xraym --self-update` 更新 Launcher 与 Core；Xray-core 和 GeoData 仍通过菜单中的独立功能管理，但通过 Cloudflare 入口安装的机器会自动让这些功能复用同一个 Worker + R2 通道。
+更新会先读取仓库 `VERSION`，按版本策略确认后下载 `SHA256SUMS`、`xray-manager.sh` 与 `lib/xray-manager-core.sh`，校验 SHA256、执行 `bash -n`、应用兼容补丁并原子切换 `current`；Token 只在本次使用，不会落盘。Xray-core 和 GeoData 仍通过菜单中的独立功能管理，并且都只使用各自官方的 GitHub Release。
 
 更新器严格比较 `MAJOR.MINOR.PATCH` 三段式版本号：默认允许升级；相同版本会要求确认后重装；降级默认拒绝。确需回退时必须显式执行：
 
@@ -278,7 +219,7 @@ Launcher 自更新和 Core 中所有会修改系统状态的主菜单操作共�
 16) 更新 Xray Manager 脚本
 ```
 
-它会调用 Launcher 的同一套自更新逻辑，按机器原本记录的 GitHub / Cloudflare 来源更新；完成后可以立即重新载入新版菜单。
+它会调用 Launcher 的同一套 GitHub 自更新逻辑；完成后可以立即重新载入新版菜单。
 
 ### GitHub 来源下的 Xray Core 版本选择
 
@@ -313,37 +254,11 @@ Alpine/OpenRC 下官方 Alpine 安装器不支持 `--version`，管理器会直�
 
 GitHub API 超时、限额或返回异常时，菜单会提供“重试 / 手动输入版本 / 返回”；手动输入同样需要验证 Release 元数据，验证不了就不会盲目下载安装。所有 GitHub 请求都会使用已配置的 `XRAY_DOWNLOAD_PROXY`。
 
-Cloudflare/R2 通道保持保守策略，只安装项目 CI 验证并经过 14 天观察期的版本，不提供任意版本选择，也不会因为该功能访问 GitHub。
+`XRAY_VERSION` 只是 CI 使用的 Xray Core 测试基准版本（同时用于真实配置 smoke test），不限制 GitHub 在线安装用户能选择的版本。
 
-`XRAY_VERSION` 仍是 CI 基线、R2 打包和上游 API 异常时的回退版本；GitHub 在线安装用户选择的版本不受它限制。
+### GeoData 更新
 
-### R2 中 Xray 与 GeoData 的更新策略
-
-Worker 本身不保存或打包 Xray，它只负责鉴权并读取私有 R2。R2 的 `latest-amd64.tar.gz` / `latest-arm64.tar.gz` 才包含 Manager、对应架构的 Xray ZIP、`geoip.dat` 和 `geosite.dat`。
-
-`Publish offline bundles to R2` 每天北京时间 08:30 自动运行，也会在相关代码合并到 `main` 后运行：
-
-1. 从 XTLS/Xray-core Releases 中选择正式稳定版，不采用 Pre-release；新稳定版发布满 14 天后才允许进入 R2，期间继续使用上一版。
-2. 拉取该 Tag 的 Release 元数据，校验 AMD64 / ARM64 官方 ZIP 的下载 URL、资产名，并用 GitHub API `digest` 或官方 `.dgst` 验证 SHA256；摘要缺失、格式错误或不匹配时失败，不覆盖 R2。
-3. 从 Loyalsoldier `v2ray-rules-dat` 的 GitHub Releases 按 `published_at` 选择至少 7 天前、且四个 GeoData 与校验资产齐全的版本，再校验 SHA256；不依赖会被每日重建的 `release` 分支历史。
-4. 用待发布的 Xray 对全部配置和 GeoData 做测试；只有全部通过才写入内嵌 `release-manifest.json`、外层 `releases/manifest.json` 并覆盖 R2 对象。
-
-因此 Xray Core 和规则库都不会在发布当天盲目追新；Core 观察 14 天，GeoData 观察 7 天。观察期结束后，上游下载失败、哈希不一致、摘要缺失或新 Core 与现有配置不兼容时，工作流仍会失败，R2 继续保留上一次已验证的包。仓库里的 `XRAY_VERSION` 作为 CI 基线和上游 list-API 不可用时的回退版本；选定 Tag 的元数据与摘要仍然必须能取到。
-
-### Worker 通过 GitHub 自动构建
-
-仓库中的 `worker/` 包含 Worker 源码、`wrangler.jsonc`、固定依赖锁文件和 Workers 运行时测试。连接 Cloudflare 时使用现有 Worker：
-
-| Cloudflare Builds 设置 | 值 |
-| --- | --- |
-| Worker | `xray-manager-download` |
-| Production branch | `main` |
-| Root directory | `worker` |
-| Build command | `npm run check` |
-| Deploy command | `npm run deploy` |
-| Include paths | `worker/*` |
-
-`BUNDLES` R2 绑定已在 Wrangler 配置中声明。现有 `INSTALL_TOKEN` 必须继续保存在 Cloudflare Worker Secret 中，不能写入仓库或普通 `vars`。详细步骤见 [worker/README.md](worker/README.md)。
+主菜单 `7) 更新 GeoIP / GeoSite` 调用 XTLS 官方安装器更新 `geoip.dat` / `geosite.dat`；Alpine/OpenRC 会连同 Xray 一起更新。完全离线环境可在菜单 `14)` 中导入本地 GeoData。
 
 查看项目 / Core 版本：
 
@@ -491,7 +406,7 @@ REALITY 会把未通过认证的连接转发到 `target` 以维持正常 TLS 站
 
 ```bash
 bash scripts/maintainer-map.sh --ai "路由规则顺序"
-bash scripts/maintainer-map.sh --ai "Worker 401"
+bash scripts/maintainer-map.sh --ai "SS2022 用户"
 bash scripts/maintainer-map.sh --ai "IPv6 下载"
 ```
 
@@ -500,10 +415,10 @@ bash scripts/maintainer-map.sh --ai "IPv6 下载"
 ## 架构
 
 ```text
-Cloudflare Worker → 私有 R2 离线包
-            ↓ IPv4 / IPv6 鉴权分发
+私有 GitHub 仓库（install.sh / 自更新）
+            ↓ HTTPS + Fine-grained PAT / XRAY_DOWNLOAD_PROXY
 xray-manager.sh
-            ↓ Launcher / Cloudflare 或 Private Repo Updater
+            ↓ Launcher / GitHub Updater
 lib/xray-manager-core.sh
             ↓ 完整 Xray 管理核心
 Xray-core / UFW / BBR / 配置文件
@@ -515,7 +430,6 @@ Xray-core / UFW / BBR / 配置文件
 .
 ├── xray-manager.sh
 ├── install.sh
-├── cloudflare-install.sh
 ├── offline-install.sh
 ├── VERSION
 ├── XRAY_VERSION
@@ -533,24 +447,14 @@ Xray-core / UFW / BBR / 配置文件
 ├── scripts/
 │   ├── maintainer-map.sh
 │   ├── refresh-checksums.sh
-│   ├── select-xray-release.sh
-│   ├── select-geodata-release.sh
 │   └── verify-xray-asset.sh
 ├── tests/
 │   ├── inbound-management.sh
 │   ├── smoke-configs.sh
 │   ├── offline-install.sh
-│   ├── cloudflare-update.sh
-│   ├── xray-release-delay.sh
 │   ├── xray-version-select.sh
 │   └── xray-asset-integrity.sh
-├── worker/
-│   ├── src/index.ts
-│   ├── test/index.spec.ts
-│   ├── wrangler.jsonc
-│   └── package.json
 ├── .github/workflows/shellcheck.yml
-├── .github/workflows/publish-r2.yml
 ├── README.md
 ├── AGENTS.md
 ├── CLAUDE.md
@@ -562,13 +466,12 @@ Xray-core / UFW / BBR / 配置文件
 
 ## 安装与更新安全
 
-1. GitHub 路径先下载 `SHA256SUMS`、Launcher 与原始 Core，再校验 SHA256。
-2. Cloudflare 路径先校验 sidecar `.sha256` 与 `releases/manifest.json` 中的包摘要，解压后再核对内嵌 `release-manifest.json` 与 `VERSION`。
-3. 确认 Core 使用独立安装路径，不覆盖 `/usr/local/sbin/xraym`；安装器仍保留对旧版 Core 的兼容补丁。
-4. 对 Launcher 与补丁后的 Core 执行 `bash -n`。
-5. 全部通过后才写入 `releases/<version>/`，原子切换 `current`；失败时保留原 current。
+1. 先下载 `SHA256SUMS`、Launcher 与原始 Core，再校验 SHA256。
+2. 确认 Core 使用独立安装路径，不覆盖 `/usr/local/sbin/xraym`；安装器仍保留对旧版 Core 的兼容补丁。
+3. 对 Launcher 与补丁后的 Core 执行 `bash -n`。
+4. 全部通过后才写入 `releases/<version>/`，原子切换 `current`；失败时保留原 current。
 
-GitHub Token 默认不会写入配置文件；交互输入完成后仅用于本次私有仓库下载。Cloudflare 安装密钥同样不落盘。
+GitHub Token 默认不会写入配置文件；交互输入完成后仅用于本次私有仓库下载。
 
 ## IPv6-only
 
@@ -593,13 +496,9 @@ bash -n xray-manager.sh
 bash -n lib/xray-manager-core.sh
 bash -n install.sh
 sha256sum -c SHA256SUMS
-
-cd worker
-npm ci
-npm run check
 ```
 
-`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、事务化备份恢复、原子发布、上游资产完整性、Xray 版本选择（解析、Stable/Pre-release 筛选、降级保护、安装参数与失败回滚）、离线导入、Worker 类型检查和 Workers 运行时测试。`Publish offline bundles to R2` 每天选择发布已满 14 天的最新稳定版 Xray 和至少 7 天前的 GeoData 快照，校验上游摘要并再次运行配置与 GeoData 测试，成功后才构建并上传 AMD64 / ARM64 离线包与发布清单。
+`Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、事务化备份恢复、原子发布、上游资产完整性、Xray 版本选择（解析、Stable/Pre-release 筛选、降级保护、安装参数与失败回滚）、离线导入和真实 Xray 配置 smoke test。
 
 ## License
 

@@ -21,10 +21,7 @@ jobs:
           bash -n lib/xray-manager-core.sh
           bash -n install.sh
           bash -n offline-install.sh
-          bash -n cloudflare-install.sh
           bash -n scripts/refresh-checksums.sh
-          bash -n scripts/select-geodata-release.sh
-          bash -n scripts/select-xray-release.sh
           bash -n scripts/verify-xray-asset.sh
           bash -n scripts/maintainer-map.sh
           bash -n tests/maintainer-map.sh
@@ -33,15 +30,11 @@ jobs:
           bash -n tests/wireguard-management.sh
           bash -n tests/smoke-configs.sh
           bash -n tests/offline-install.sh
-          bash -n tests/cloudflare-update.sh
-          bash -n tests/cloudflare-core-download.sh
           bash -n tests/config-migration.sh
           bash -n tests/backup-restore.sh
           bash -n tests/version-lock.sh
           bash -n tests/manager-menu-update.sh
           bash -n tests/atomic-release.sh
-          bash -n tests/geodata-release-delay.sh
-          bash -n tests/xray-release-delay.sh
           bash -n tests/xray-version-select.sh
           bash -n tests/xray-asset-integrity.sh
       - name: Verify project version
@@ -57,7 +50,7 @@ jobs:
       - name: Install ShellCheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: ShellCheck launchers
-        run: shellcheck -S warning xray-manager.sh install.sh offline-install.sh cloudflare-install.sh scripts/refresh-checksums.sh scripts/select-geodata-release.sh scripts/select-xray-release.sh scripts/verify-xray-asset.sh
+        run: shellcheck -S warning xray-manager.sh install.sh offline-install.sh scripts/refresh-checksums.sh scripts/verify-xray-asset.sh
       - name: ShellCheck core
         run: |
           shellcheck -S warning scripts/maintainer-map.sh tests/maintainer-map.sh
@@ -68,25 +61,17 @@ jobs:
           # The smoke test intentionally rebinds globals consumed by sourced Core functions.
           shellcheck -e SC2034 -S warning tests/smoke-configs.sh
           shellcheck -e SC2034 -S warning tests/offline-install.sh
-          shellcheck -S warning tests/cloudflare-update.sh
-          shellcheck -e SC2034 -S warning tests/cloudflare-core-download.sh
           shellcheck -e SC2034 -S warning tests/config-migration.sh
           shellcheck -e SC2034 -S warning tests/backup-restore.sh
           shellcheck -e SC2034 -S warning tests/version-lock.sh
           shellcheck -e SC2034 -S warning tests/manager-menu-update.sh
           shellcheck -e SC2034 -S warning tests/atomic-release.sh
-          shellcheck -S warning tests/geodata-release-delay.sh
-          shellcheck -S warning tests/xray-release-delay.sh
           shellcheck -S warning tests/xray-version-select.sh
           shellcheck -S warning tests/xray-asset-integrity.sh
       - name: Offline import test
         run: bash tests/offline-install.sh
       - name: Bootstrap dependency test
         run: sudo bash tests/bootstrap-install.sh
-      - name: Cloudflare manager update test
-        run: bash tests/cloudflare-update.sh
-      - name: Cloudflare Core download test
-        run: bash tests/cloudflare-core-download.sh
       - name: Existing configuration migration test
         run: bash tests/config-migration.sh
       - name: Backup restore transaction test
@@ -97,14 +82,10 @@ jobs:
         run: bash tests/atomic-release.sh
       - name: Manager menu update test
         run: bash tests/manager-menu-update.sh
-      - name: Xray release delay policy test
-        run: bash tests/xray-release-delay.sh
       - name: Xray version selection test
         run: bash tests/xray-version-select.sh
       - name: Xray asset integrity test
         run: bash tests/xray-asset-integrity.sh
-      - name: GeoData release delay policy test
-        run: bash tests/geodata-release-delay.sh
       - name: Inbound management regression test
         run: bash tests/inbound-management.sh
       - name: WireGuard management regression test
@@ -120,21 +101,3 @@ jobs:
           XRAY_TEST_BIN=/tmp/xray-test/xray \
             XRAY_TEST_ASSET_DIR=/tmp/xray-test \
             bash tests/smoke-configs.sh
-
-  worker:
-    name: Cloudflare Worker
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: worker
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: worker/package-lock.json
-      - name: Install locked dependencies
-        run: npm ci
-      - name: Type-check and test Worker
-        run: npm run check

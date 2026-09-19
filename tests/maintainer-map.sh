@@ -28,13 +28,9 @@ wireguard="$(bash "$MAP" "WireGuard 公钥")"
 must_contain "$wireguard" 'tests/wireguard-management.sh'
 must_contain "$wireguard" 'lib/xray-manager-core.sh'
 
-worker="$(bash "$MAP" "Worker 401")"
-must_contain "$worker" 'worker/src/index.ts'
-must_contain "$worker" 'worker/test/index.spec.ts'
-
 ipv6="$(bash "$MAP" "IPv6 下载")"
 must_contain "$ipv6" '[network-ipv6]'
-must_contain "$ipv6" 'tests/cloudflare-core-download.sh'
+must_contain "$ipv6" 'tests/offline-install.sh'
 
 integrity="$(bash "$MAP" "digest")"
 must_contain "$integrity" '[xray-geodata]'
@@ -48,7 +44,7 @@ fi
 
 ai_routing="$(bash "$MAP" --ai "路由规则顺序")"
 must_contain "$ai_routing" 'area: routing'
-must_contain "$ai_routing" '5763,6224p'
+must_contain "$ai_routing" '5616,6077p'
 must_contain "$ai_routing" 'tests/smoke-configs.sh'
 must_contain "$ai_routing" 'skip: README.md'
 
@@ -56,20 +52,20 @@ ai_ss="$(bash "$MAP" --ai "SS2022")"
 must_contain "$ai_ss" 'area: inbound-transport'
 must_contain "$ai_ss" 'add_shadowsocks'
 must_contain "$ai_ss" 'validate_shadowsocks_2022_secret'
-if printf '%s\n' "$ai_ss" | grep -q '1951,5144p'; then
+if printf '%s\n' "$ai_ss" | grep -q '1804,4997p'; then
   echo "SS2022 --ai dumped the whole inbound cluster" >&2
   exit 1
 fi
-
-ai_worker="$(bash "$MAP" --ai "Worker 401")"
-must_contain "$ai_worker" 'area: worker-r2'
-must_contain "$ai_worker" 'worker/src/index.ts'
-must_contain "$ai_worker" 'skip: README.md'
 
 ai_backup="$(bash "$MAP" --ai "备份恢复")"
 must_contain "$ai_backup" 'area: config-safety'
 must_contain "$ai_backup" 'backup_now'
 must_contain "$ai_backup" 'tests/backup-restore.sh'
+
+if bash "$MAP" --ai "Cloudflare Worker R2" >/dev/null 2>&1; then
+  echo "retired worker-r2 area unexpectedly matched" >&2
+  exit 1
+fi
 
 if bash "$MAP" --ai "definitely-unknown-area" >/dev/null 2>&1; then
   echo "unknown --ai query unexpectedly succeeded" >&2

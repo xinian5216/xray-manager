@@ -244,80 +244,13 @@ XRAY_MANAGER_GITHUB_TOKEN="ghp_test_token_secret_xyz" \
 XRAY_MANAGER_INSTALL_PATH="$INSTALL_ROOT/xraym" \
 XRAY_MANAGER_CORE_PATH="$INSTALL_ROOT/lib/xray-manager-core.sh" \
 XRAY_MANAGER_LOCK_DIR="$INSTALL_ROOT/manager.lock" \
-bash "$ROOT_DIR/xray-manager.sh" --self-update-github >/dev/null
+bash "$ROOT_DIR/xray-manager.sh" --self-update >/dev/null
 
 [[ -L "$INSTALL_ROOT/xraym" ]] || fail "github update did not create launcher symlink"
 [[ "$(read_project_version "$(readlink -f "$INSTALL_ROOT/xraym")")" == "9.9.9" ]] \
   || fail "github update did not install 9.9.9"
 if grep -Rqs 'ghp_test_token_secret_xyz' "$INSTALL_ROOT"; then
   fail "GitHub token was persisted on disk"
-fi
-
-# 11. Cloudflare self-update path and token hygiene.
-setup_env cloudflare
-PACKAGE_ROOT="$INSTALL_ROOT/package"
-MANAGER="$PACKAGE_ROOT/xray-manager"
-FIXTURES="$INSTALL_ROOT/cf-fixtures"
-MOCK_BIN="$INSTALL_ROOT/mock-bin"
-mkdir -p "$MANAGER/lib" "$FIXTURES" "$MOCK_BIN"
-install -m 755 "$PAIRS/9.9.9/xray-manager.sh" "$MANAGER/xray-manager.sh"
-install -m 755 "$PAIRS/9.9.9/lib/xray-manager-core.sh" "$MANAGER/lib/xray-manager-core.sh"
-install -m 644 "$PAIRS/9.9.9/SHA256SUMS" "$MANAGER/SHA256SUMS"
-printf '9.9.9\n' >"$MANAGER/VERSION"
-printf '{"format":1,"manager_version":"9.9.9"}\n' >"$MANAGER/release-manifest.json"
-tar -C "$PACKAGE_ROOT" -czf "$FIXTURES/latest-amd64.tar.gz" xray-manager
-sha256sum "$FIXTURES/latest-amd64.tar.gz" | awk '{print $1}' >"$FIXTURES/latest-amd64.sha256"
-python3 - "$FIXTURES/latest-amd64.sha256" "$FIXTURES/manifest.json" <<'PY'
-import pathlib, sys
-sha = pathlib.Path(sys.argv[1]).read_text().strip()
-pathlib.Path(sys.argv[2]).write_text(
-    '{"format":1,"manager_version":"9.9.9","packages":{"amd64":{"file":"latest-amd64.tar.gz","sha256":"%s"}}}\n' % sha
-)
-PY
-
-cat >"$MOCK_BIN/curl" <<'SH'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-url=""
-out=""
-while (($#)); do
-  case "$1" in
-    --config) shift 2 ;;
-    -o|--output) out="$2"; shift 2 ;;
-    http://*|https://*) url="$1"; shift ;;
-    *) shift ;;
-  esac
-done
-[[ -n "$url" && -n "$out" ]]
-cp "$XRAY_TEST_FIXTURES/${url##*/}" "$out"
-SH
-chmod 755 "$MOCK_BIN/curl"
-
-# Preserve update-source / Cloudflare URL files across install.
-mkdir -p "$INSTALL_ROOT/state"
-printf 'cloudflare\n' >"$INSTALL_ROOT/state/manager_update_source"
-printf 'https://worker.example.invalid\n' >"$INSTALL_ROOT/state/cloudflare_url"
-chmod 600 "$INSTALL_ROOT/state/manager_update_source" "$INSTALL_ROOT/state/cloudflare_url"
-
-PATH="$MOCK_BIN:$PATH" \
-XRAY_TEST_FIXTURES="$FIXTURES" \
-XRAY_MANAGER_INSTALL_TOKEN="cf_install_token_secret_xyz" \
-XRAY_MANAGER_CLOUDFLARE_URL="https://worker.example.invalid" \
-XRAY_MANAGER_UPDATE_SOURCE_FILE="$INSTALL_ROOT/state/manager_update_source" \
-XRAY_MANAGER_CLOUDFLARE_URL_FILE="$INSTALL_ROOT/state/cloudflare_url" \
-XRAY_MANAGER_LOCK_DIR="$INSTALL_ROOT/manager.lock" \
-XRAY_MANAGER_INSTALL_PATH="$INSTALL_ROOT/xraym" \
-XRAY_MANAGER_CORE_PATH="$INSTALL_ROOT/lib/xray-manager-core.sh" \
-bash "$ROOT_DIR/xray-manager.sh" --self-update-cloudflare >/dev/null
-
-[[ "$(read_project_version "$(readlink -f "$INSTALL_ROOT/xraym")")" == "9.9.9" ]] \
-  || fail "cloudflare update did not install 9.9.9"
-[[ "$(tr -d '[:space:]' <"$INSTALL_ROOT/state/manager_update_source")" == "cloudflare" ]] \
-  || fail "update source file was modified"
-[[ "$(tr -d '[:space:]' <"$INSTALL_ROOT/state/cloudflare_url")" == "https://worker.example.invalid" ]] \
-  || fail "cloudflare url file was modified"
-if grep -Rqs 'cf_install_token_secret_xyz' "$INSTALL_ROOT"; then
-  fail "Cloudflare install token was persisted on disk"
 fi
 
 echo "Atomic Manager release tests passed."

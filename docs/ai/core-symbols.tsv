@@ -1,45 +1,42 @@
 # file	start	end	name	areas
-xray-manager.sh	33	33	info	
-xray-manager.sh	34	34	ok	
-xray-manager.sh	35	35	warn	
-xray-manager.sh	36	37	err	
-xray-manager.sh	38	63	usage	launcher
-xray-manager.sh	64	90	manager_version_action	launcher
-xray-manager.sh	91	114	approve_target_version	launcher
-xray-manager.sh	115	145	acquire_manager_lock	launcher
-xray-manager.sh	146	164	release_manager_lock	launcher
-xray-manager.sh	165	175	load_update_channel	launcher
-xray-manager.sh	176	186	get_token	launcher
-xray-manager.sh	187	197	get_install_token	launcher
-xray-manager.sh	198	218	curl_private	launcher
-xray-manager.sh	219	229	sha256_file	launcher
-xray-manager.sh	230	247	verify_extracted_release_manifest	launcher
-xray-manager.sh	248	260	verify_payload	launcher
-xray-manager.sh	261	275	patch_core_for_launcher	launcher
-xray-manager.sh	276	284	manager_layout_paths	launcher
-xray-manager.sh	285	294	manager_can_write	launcher
-xray-manager.sh	295	301	manager_needs_sudo	launcher
-xray-manager.sh	302	313	run_priv	launcher
-xray-manager.sh	314	321	read_project_version	launcher
-xray-manager.sh	322	329	read_core_version	launcher
-xray-manager.sh	330	336	resolve_link	launcher
-xray-manager.sh	337	348	verify_release_dir	launcher
-xray-manager.sh	349	366	selfcheck_current_release	launcher
-xray-manager.sh	367	386	atomic_symlink	launcher
-xray-manager.sh	387	390	install_release_file	launcher
-xray-manager.sh	391	410	replace_with_symlink	launcher
-xray-manager.sh	411	420	ensure_compat_links	launcher
-xray-manager.sh	421	431	choose_release_dir	launcher
-xray-manager.sh	432	445	prune_old_releases	launcher
-xray-manager.sh	446	489	migrate_legacy_layout	launcher
-xray-manager.sh	490	499	restore_current_link	launcher
-xray-manager.sh	500	597	install_pair	launcher
-xray-manager.sh	598	631	rollback_manager	launcher
-xray-manager.sh	632	683	self_update_github	launcher
-xray-manager.sh	684	791	self_update_cloudflare	launcher
-xray-manager.sh	792	804	self_update	launcher
-xray-manager.sh	805	821	print_version	launcher
-xray-manager.sh	822	875	run_core	launcher
+xray-manager.sh	28	28	info	
+xray-manager.sh	29	29	ok	
+xray-manager.sh	30	30	warn	
+xray-manager.sh	31	32	err	
+xray-manager.sh	33	53	usage	launcher
+xray-manager.sh	54	80	manager_version_action	launcher
+xray-manager.sh	81	104	approve_target_version	launcher
+xray-manager.sh	105	135	acquire_manager_lock	launcher
+xray-manager.sh	136	154	release_manager_lock	launcher
+xray-manager.sh	155	161	cleanup_legacy_update_state	launcher
+xray-manager.sh	162	172	get_token	launcher
+xray-manager.sh	173	193	curl_private	launcher
+xray-manager.sh	194	204	sha256_file	launcher
+xray-manager.sh	205	217	verify_payload	launcher
+xray-manager.sh	218	232	patch_core_for_launcher	launcher
+xray-manager.sh	233	241	manager_layout_paths	launcher
+xray-manager.sh	242	251	manager_can_write	launcher
+xray-manager.sh	252	258	manager_needs_sudo	launcher
+xray-manager.sh	259	270	run_priv	launcher
+xray-manager.sh	271	278	read_project_version	launcher
+xray-manager.sh	279	286	read_core_version	launcher
+xray-manager.sh	287	293	resolve_link	launcher
+xray-manager.sh	294	305	verify_release_dir	launcher
+xray-manager.sh	306	323	selfcheck_current_release	launcher
+xray-manager.sh	324	343	atomic_symlink	launcher
+xray-manager.sh	344	347	install_release_file	launcher
+xray-manager.sh	348	367	replace_with_symlink	launcher
+xray-manager.sh	368	377	ensure_compat_links	launcher
+xray-manager.sh	378	388	choose_release_dir	launcher
+xray-manager.sh	389	402	prune_old_releases	launcher
+xray-manager.sh	403	446	migrate_legacy_layout	launcher
+xray-manager.sh	447	456	restore_current_link	launcher
+xray-manager.sh	457	554	install_pair	launcher
+xray-manager.sh	555	588	rollback_manager	launcher
+xray-manager.sh	589	640	self_update_github	launcher
+xray-manager.sh	641	645	self_update	launcher
+xray-manager.sh	646	662	print_version	launcher
+xray-manager.sh	663	710	run_core	launcher
 install.sh	21	21	info	
 install.sh	22	22	ok	
 install.sh	23	23	warn	
@@ -52,312 +49,305 @@ install.sh	131	143	verify_payload
 install.sh	144	158	patch_core_for_launcher	
 install.sh	159	167	install_release_pair	
 install.sh	168	186	install_runtime_dependencies	
-install.sh	187	206	persist_github_update_source	
-install.sh	207	252	cleanup	
-cloudflare-install.sh	46	151	cleanup	
+install.sh	187	199	cleanup_legacy_update_state	
+install.sh	200	245	cleanup	
 offline-install.sh	17	17	err	
 offline-install.sh	18	19	ok	
 offline-install.sh	20	64	usage	
 offline-install.sh	65	74	sha256_file	
-offline-install.sh	75	139	verify_repo_file	
-lib/xray-manager-core.sh	55	55	info	
-lib/xray-manager-core.sh	56	56	ok	
-lib/xray-manager-core.sh	57	57	warn	
-lib/xray-manager-core.sh	58	58	err	
-lib/xray-manager-core.sh	59	60	die	
-lib/xray-manager-core.sh	61	65	pause	
-lib/xray-manager-core.sh	66	71	confirm	
-lib/xray-manager-core.sh	72	77	ask_default	
-lib/xray-manager-core.sh	78	86	ask_required	
-lib/xray-manager-core.sh	87	98	ask_port	
-lib/xray-manager-core.sh	99	106	sanitize_tag	
-lib/xray-manager-core.sh	107	111	tag_exists	
-lib/xray-manager-core.sh	112	124	ask_named_tag	
-lib/xray-manager-core.sh	125	128	ask_tag	
-lib/xray-manager-core.sh	129	133	require_root	
-lib/xray-manager-core.sh	134	164	acquire_manager_lock	
-lib/xray-manager-core.sh	165	190	release_manager_lock	
-lib/xray-manager-core.sh	191	214	detect_xray_run_identity	network-ipv6
-lib/xray-manager-core.sh	215	250	detect_platform	network-ipv6
-lib/xray-manager-core.sh	251	264	load_network_state	network-ipv6
-lib/xray-manager-core.sh	265	269	uses_cloudflare_distribution	network-ipv6
-lib/xray-manager-core.sh	270	284	run_net_command	network-ipv6
-lib/xray-manager-core.sh	285	292	curl_net	network-ipv6
-lib/xray-manager-core.sh	293	312	ensure_bootstrap_curl	network-ipv6
-lib/xray-manager-core.sh	313	317	has_global_ipv4	network-ipv6
-lib/xray-manager-core.sh	318	322	has_global_ipv6	network-ipv6
-lib/xray-manager-core.sh	323	332	default_public_listen	network-ipv6
-lib/xray-manager-core.sh	333	338	test_ipv4_internet	network-ipv6
-lib/xray-manager-core.sh	339	344	test_ipv6_internet	network-ipv6
-lib/xray-manager-core.sh	345	352	test_ipv4_via_default_stack	network-ipv6
-lib/xray-manager-core.sh	353	358	test_official_installer_access	network-ipv6
-lib/xray-manager-core.sh	359	363	curl_supports_doh	network-ipv6
-lib/xray-manager-core.sh	364	380	test_cloudflare_dns64_nat64	network-ipv6
-lib/xray-manager-core.sh	381	384	default_ipv6_interface	network-ipv6
-lib/xray-manager-core.sh	385	445	enable_cloudflare_dns64	network-ipv6
-lib/xray-manager-core.sh	446	479	restore_dns64	network-ipv6
-lib/xray-manager-core.sh	480	506	set_download_proxy	network-ipv6
-lib/xray-manager-core.sh	507	512	clear_download_proxy	network-ipv6
-lib/xray-manager-core.sh	513	528	network_stack_label	network-ipv6
-lib/xray-manager-core.sh	529	547	network_report	network-ipv6
-lib/xray-manager-core.sh	548	602	prepare_download_network	network-ipv6
-lib/xray-manager-core.sh	603	641	ipv6_only_menu	network-ipv6
-lib/xray-manager-core.sh	642	669	pkg_install_base	install-migrate
-lib/xray-manager-core.sh	670	682	ensure_runtime_dependencies	install-migrate
-lib/xray-manager-core.sh	683	695	pkg_install_optional	install-migrate
-lib/xray-manager-core.sh	696	735	ensure_layout	install-migrate
-lib/xray-manager-core.sh	736	751	install_manager_command	install-migrate
-lib/xray-manager-core.sh	752	756	download_to_tmp	install-migrate
-lib/xray-manager-core.sh	757	767	get_cloudflare_install_token	install-migrate
-lib/xray-manager-core.sh	768	778	cloudflare_distribution_arch	install-migrate
-lib/xray-manager-core.sh	779	851	cloudflare_download_payload	install-migrate
-lib/xray-manager-core.sh	852	866	cloudflare_install_or_update_xray	install-migrate
-lib/xray-manager-core.sh	867	883	run_systemd_installer	install-migrate
-lib/xray-manager-core.sh	884	888	run_alpine_installer	install-migrate
-lib/xray-manager-core.sh	889	898	configure_openrc_confdir	install-migrate
-lib/xray-manager-core.sh	899	909	offline_sha256_file	install-migrate
-lib/xray-manager-core.sh	910	945	offline_extract_xray	install-migrate
-lib/xray-manager-core.sh	946	959	offline_validate_file	install-migrate
-lib/xray-manager-core.sh	960	986	extract_xray_config_source	install-migrate
-lib/xray-manager-core.sh	987	1010	extract_xray_binary_from_command	install-migrate
-lib/xray-manager-core.sh	1011	1052	discover_existing_xray_binary	install-migrate
-lib/xray-manager-core.sh	1053	1126	discover_existing_xray_config	install-migrate
-lib/xray-manager-core.sh	1127	1157	backup_xray_service_state	install-migrate
-lib/xray-manager-core.sh	1158	1265	migrate_existing_xray_config	install-migrate
-lib/xray-manager-core.sh	1266	1282	prepare_existing_xray_config	install-migrate
-lib/xray-manager-core.sh	1283	1325	configure_systemd_offline_service	install-migrate
-lib/xray-manager-core.sh	1326	1340	configure_openrc_offline_service	install-migrate
-lib/xray-manager-core.sh	1341	1350	depend	install-migrate
-lib/xray-manager-core.sh	1351	1361	configure_offline_service	install-migrate
-lib/xray-manager-core.sh	1362	1427	offline_import_xray	install-migrate
-lib/xray-manager-core.sh	1428	1489	offline_import_geodata	install-migrate
-lib/xray-manager-core.sh	1490	1503	cloudflare_update_geodata	install-migrate
-lib/xray-manager-core.sh	1504	1514	offline_import_menu	install-migrate
-lib/xray-manager-core.sh	1515	1675	install_or_repair_xray	install-migrate
-lib/xray-manager-core.sh	1676	1679	xray_exists	install-migrate
-lib/xray-manager-core.sh	1680	1690	need_xray	install-migrate
-lib/xray-manager-core.sh	1691	1695	test_config_dir	config-safety
-lib/xray-manager-core.sh	1696	1700	test_config	config-safety
-lib/xray-manager-core.sh	1701	1714	service_restart	config-safety
-lib/xray-manager-core.sh	1715	1722	service_start	config-safety
-lib/xray-manager-core.sh	1723	1730	service_stop	config-safety
-lib/xray-manager-core.sh	1731	1738	service_status	config-safety
-lib/xray-manager-core.sh	1739	1758	show_logs	config-safety
-lib/xray-manager-core.sh	1759	1812	backup_now	config-safety
-lib/xray-manager-core.sh	1813	1868	safe_write_config_file	config-safety
-lib/xray-manager-core.sh	1869	1876	safe_write_inbound	config-safety
-lib/xray-manager-core.sh	1877	1901	safe_remove_config_file	config-safety
-lib/xray-manager-core.sh	1902	1906	port_in_use	
-lib/xray-manager-core.sh	1907	1914	warn_port	
-lib/xray-manager-core.sh	1915	1918	random_secret	
-lib/xray-manager-core.sh	1919	1928	generate_shadowsocks_secret	
-lib/xray-manager-core.sh	1929	1933	random_hex	
-lib/xray-manager-core.sh	1934	1950	generate_uuid	
-lib/xray-manager-core.sh	1951	1970	copy_existing_certificate	inbound-transport
-lib/xray-manager-core.sh	1971	1978	install_socat_for_acme	inbound-transport
-lib/xray-manager-core.sh	1979	2018	install_pinned_acme_sh	inbound-transport
-lib/xray-manager-core.sh	2019	2076	acme_issue_certificate	inbound-transport
-lib/xray-manager-core.sh	2077	2104	tls_certificate_wizard	inbound-transport
-lib/xray-manager-core.sh	2105	2198	choose_transport	inbound-transport
-lib/xray-manager-core.sh	2199	2206	random_range	inbound-transport
-lib/xray-manager-core.sh	2207	2223	known_shared_cdn_name	inbound-transport
-lib/xray-manager-core.sh	2224	2253	reality_target_risk_check	inbound-transport
-lib/xray-manager-core.sh	2254	2306	configure_reality_fallback_limits	inbound-transport
-lib/xray-manager-core.sh	2307	2324	generate_reality_keys	inbound-transport
-lib/xray-manager-core.sh	2325	2397	build_reality_settings	inbound-transport
-lib/xray-manager-core.sh	2398	2420	build_tls_settings	inbound-transport
-lib/xray-manager-core.sh	2421	2487	build_stream_settings	inbound-transport
-lib/xray-manager-core.sh	2488	2492	managed_ufw_comment	inbound-transport
-lib/xray-manager-core.sh	2493	2499	managed_ufw_allow	inbound-transport
-lib/xray-manager-core.sh	2500	2516	remove_managed_ufw_rules	inbound-transport
-lib/xray-manager-core.sh	2517	2531	maybe_ufw_for_transport	inbound-transport
-lib/xray-manager-core.sh	2532	2558	show_created_summary	inbound-transport
-lib/xray-manager-core.sh	2559	2607	add_vless	inbound-transport
-lib/xray-manager-core.sh	2608	2644	add_vmess	inbound-transport
-lib/xray-manager-core.sh	2645	2680	add_trojan	inbound-transport
-lib/xray-manager-core.sh	2681	2744	add_shadowsocks	inbound-transport
-lib/xray-manager-core.sh	2745	2790	add_socks	inbound-transport
-lib/xray-manager-core.sh	2791	2818	add_http	inbound-transport
-lib/xray-manager-core.sh	2819	2878	add_hysteria2	inbound-transport
-lib/xray-manager-core.sh	2879	2890	install_wireguard_tools	inbound-transport
-lib/xray-manager-core.sh	2891	2898	validate_wireguard_key	inbound-transport
-lib/xray-manager-core.sh	2899	2910	ask_wireguard_key	inbound-transport
-lib/xray-manager-core.sh	2911	2921	validate_ipv4_address	inbound-transport
-lib/xray-manager-core.sh	2922	2951	validate_ipv6_address	inbound-transport
-lib/xray-manager-core.sh	2952	2964	validate_wireguard_cidr	inbound-transport
-lib/xray-manager-core.sh	2965	2974	validate_wireguard_cidr_list	inbound-transport
-lib/xray-manager-core.sh	2975	2986	ask_wireguard_cidrs	inbound-transport
-lib/xray-manager-core.sh	2987	3002	validate_wireguard_endpoint	inbound-transport
-lib/xray-manager-core.sh	3003	3014	ask_wireguard_endpoint	inbound-transport
-lib/xray-manager-core.sh	3015	3026	ask_wireguard_mtu	inbound-transport
-lib/xray-manager-core.sh	3027	3038	ask_wireguard_keepalive	inbound-transport
-lib/xray-manager-core.sh	3039	3042	wireguard_profile_directory	inbound-transport
-lib/xray-manager-core.sh	3043	3048	wireguard_profile_path	inbound-transport
-lib/xray-manager-core.sh	3049	3073	wireguard_save_profile	inbound-transport
-lib/xray-manager-core.sh	3074	3083	wireguard_peer_label	inbound-transport
-lib/xray-manager-core.sh	3084	3097	wireguard_peer_label_exists	inbound-transport
-lib/xray-manager-core.sh	3098	3112	wireguard_next_client_address	inbound-transport
-lib/xray-manager-core.sh	3113	3118	wireguard_ipv4_integer	inbound-transport
-lib/xray-manager-core.sh	3119	3145	wireguard_ipv6_expanded	inbound-transport
-lib/xray-manager-core.sh	3146	3161	wireguard_ipv6_prefix_match	inbound-transport
-lib/xray-manager-core.sh	3162	3184	wireguard_cidrs_overlap	inbound-transport
-lib/xray-manager-core.sh	3185	3202	wireguard_peer_addresses_available	inbound-transport
-lib/xray-manager-core.sh	3203	3217	wireguard_default_client_routes	inbound-transport
-lib/xray-manager-core.sh	3218	3225	wireguard_server_public_key	inbound-transport
-lib/xray-manager-core.sh	3226	3260	render_wireguard_client_config	inbound-transport
-lib/xray-manager-core.sh	3261	3348	add_wireguard	inbound-transport
-lib/xray-manager-core.sh	3349	3433	add_tunnel	inbound-transport
-lib/xray-manager-core.sh	3434	3482	add_tun	inbound-transport
-lib/xray-manager-core.sh	3483	3508	import_custom_json	inbound-transport
-lib/xray-manager-core.sh	3509	3543	add_inbound_menu	inbound-transport
-lib/xray-manager-core.sh	3544	3582	inbound_inventory_rows	inbound-transport
-lib/xray-manager-core.sh	3583	3602	list_inbounds	inbound-transport
-lib/xray-manager-core.sh	3603	3617	find_any_inbound_file	inbound-transport
-lib/xray-manager-core.sh	3618	3636	resolve_inbound_selection	inbound-transport
-lib/xray-manager-core.sh	3637	3657	choose_inbound_tag	inbound-transport
-lib/xray-manager-core.sh	3658	3670	inbound_networks	inbound-transport
-lib/xray-manager-core.sh	3671	3693	inbound_default_outbound	inbound-transport
-lib/xray-manager-core.sh	3694	3706	inbound_matching_routes	inbound-transport
-lib/xray-manager-core.sh	3707	3801	show_inbound_summary_file	inbound-transport
-lib/xray-manager-core.sh	3802	3809	show_inbound_details	inbound-transport
-lib/xray-manager-core.sh	3810	3839	show_inbound_raw_config	inbound-transport
-lib/xray-manager-core.sh	3840	3853	find_inbound_file	inbound-transport
-lib/xray-manager-core.sh	3854	3871	preview_inbound_change	inbound-transport
-lib/xray-manager-core.sh	3872	3907	write_inbound_candidate	inbound-transport
-lib/xray-manager-core.sh	3908	3934	edit_inbound_json	inbound-transport
-lib/xray-manager-core.sh	3935	3994	edit_inbound	inbound-transport
-lib/xray-manager-core.sh	3995	4001	inbound_supports_user_management	inbound-transport
-lib/xray-manager-core.sh	4002	4011	mask_credential	inbound-transport
-lib/xray-manager-core.sh	4012	4086	list_inbound_users_file	inbound-transport
-lib/xray-manager-core.sh	4087	4104	list_inbound_users	inbound-transport
-lib/xray-manager-core.sh	4105	4108	generate_shadowsocks_user_secret	inbound-transport
-lib/xray-manager-core.sh	4109	4119	inbound_user_label_exists	inbound-transport
-lib/xray-manager-core.sh	4120	4176	add_wireguard_peer	inbound-transport
-lib/xray-manager-core.sh	4177	4244	edit_wireguard_peer	inbound-transport
-lib/xray-manager-core.sh	4245	4270	delete_wireguard_peer	inbound-transport
-lib/xray-manager-core.sh	4271	4374	add_inbound_user	inbound-transport
-lib/xray-manager-core.sh	4375	4489	edit_inbound_user	inbound-transport
-lib/xray-manager-core.sh	4490	4529	delete_inbound_user	inbound-transport
-lib/xray-manager-core.sh	4530	4552	inbound_user_management_menu	inbound-transport
-lib/xray-manager-core.sh	4553	4556	urlencode	inbound-transport
-lib/xray-manager-core.sh	4557	4560	base64_urlsafe	inbound-transport
-lib/xray-manager-core.sh	4561	4570	uri_host	inbound-transport
-lib/xray-manager-core.sh	4571	4580	query_add	inbound-transport
-lib/xray-manager-core.sh	4581	4589	link_transport_name	inbound-transport
-lib/xray-manager-core.sh	4590	4599	reality_public_from_file	inbound-transport
-lib/xray-manager-core.sh	4600	4658	add_stream_link_parameters	inbound-transport
-lib/xray-manager-core.sh	4659	4759	build_share_link	inbound-transport
-lib/xray-manager-core.sh	4760	4767	ensure_qrencode	inbound-transport
-lib/xray-manager-core.sh	4768	4790	show_wireguard_client_config	inbound-transport
-lib/xray-manager-core.sh	4791	4849	show_inbound_share_link	inbound-transport
-lib/xray-manager-core.sh	4850	4882	delete_inbound	inbound-transport
-lib/xray-manager-core.sh	4883	4894	validate_shadowsocks_2022_secret	inbound-transport
-lib/xray-manager-core.sh	4895	5084	diagnose_inbound	inbound-transport
-lib/xray-manager-core.sh	5085	5098	show_inbound_routes	inbound-transport
-lib/xray-manager-core.sh	5099	5144	inbound_detail_menu	inbound-transport
-lib/xray-manager-core.sh	5145	5154	csv_to_json_array	outbound
-lib/xray-manager-core.sh	5155	5167	outbound_tag_exists	outbound
-lib/xray-manager-core.sh	5168	5180	inbound_tag_exists	outbound
-lib/xray-manager-core.sh	5181	5194	find_outbound_file	outbound
-lib/xray-manager-core.sh	5195	5231	list_outbounds	outbound
-lib/xray-manager-core.sh	5232	5244	choose_outbound_tag	outbound
-lib/xray-manager-core.sh	5245	5252	safe_write_outbound	outbound
-lib/xray-manager-core.sh	5253	5284	add_freedom_outbound	outbound
-lib/xray-manager-core.sh	5285	5322	add_plain_proxy_outbound	outbound
-lib/xray-manager-core.sh	5323	5353	add_shadowsocks_outbound	outbound
-lib/xray-manager-core.sh	5354	5375	wireguard_reserved_json	outbound
-lib/xray-manager-core.sh	5376	5395	wireguard_validate_strategy	outbound
-lib/xray-manager-core.sh	5396	5448	build_wireguard_outbound_json	outbound
-lib/xray-manager-core.sh	5449	5459	wireguard_userspace_choice	outbound
-lib/xray-manager-core.sh	5460	5495	add_wireguard_outbound	outbound
-lib/xray-manager-core.sh	5496	5502	wireguard_trim	outbound
-lib/xray-manager-core.sh	5503	5579	parse_wireguard_config	outbound
-lib/xray-manager-core.sh	5580	5619	import_wireguard_outbound	outbound
-lib/xray-manager-core.sh	5620	5641	import_custom_outbound	outbound
-lib/xray-manager-core.sh	5642	5667	show_outbound_details	outbound
-lib/xray-manager-core.sh	5668	5687	outbound_is_referenced	outbound
-lib/xray-manager-core.sh	5688	5712	delete_outbound	outbound
-lib/xray-manager-core.sh	5713	5739	add_outbound_menu	outbound
-lib/xray-manager-core.sh	5740	5762	outbound_menu	outbound
-lib/xray-manager-core.sh	5763	5774	routing_conflict_files	routing
-lib/xray-manager-core.sh	5775	5785	routing_ready	routing
-lib/xray-manager-core.sh	5786	5793	current_routing_json	routing
-lib/xray-manager-core.sh	5794	5799	route_tag_exists	routing
-lib/xray-manager-core.sh	5800	5812	ask_route_tag	routing
-lib/xray-manager-core.sh	5813	5818	write_routing_json	routing
-lib/xray-manager-core.sh	5819	5832	append_route_rule	routing
-lib/xray-manager-core.sh	5833	5852	add_inbound_route_rule	routing
-lib/xray-manager-core.sh	5853	5888	list_routing_rules	routing
-lib/xray-manager-core.sh	5889	5901	add_domain_route	routing
-lib/xray-manager-core.sh	5902	5914	add_ip_route	routing
-lib/xray-manager-core.sh	5915	5928	add_inbound_route	routing
-lib/xray-manager-core.sh	5929	5945	add_ip_family_route	routing
-lib/xray-manager-core.sh	5946	5976	add_china_direct_preset	routing
-lib/xray-manager-core.sh	5977	6026	add_service_route_preset	routing
-lib/xray-manager-core.sh	6027	6049	add_block_preset	routing
-lib/xray-manager-core.sh	6050	6067	set_default_outbound_route	routing
-lib/xray-manager-core.sh	6068	6079	remove_managed_route_tag	routing
-lib/xray-manager-core.sh	6080	6098	import_custom_route_rule	routing
-lib/xray-manager-core.sh	6099	6116	delete_routing_rule	routing
-lib/xray-manager-core.sh	6117	6142	move_routing_rule	routing
-lib/xray-manager-core.sh	6143	6158	set_routing_domain_strategy	routing
-lib/xray-manager-core.sh	6159	6193	add_routing_rule_menu	routing
-lib/xray-manager-core.sh	6194	6224	routing_menu	routing
-lib/xray-manager-core.sh	6225	6234	xray_version_normalize	xray-geodata
-lib/xray-manager-core.sh	6235	6257	xray_version_compare	xray-geodata
-lib/xray-manager-core.sh	6258	6267	xray_version_action	xray-geodata
-lib/xray-manager-core.sh	6268	6279	xray_current_version	xray-geodata
-lib/xray-manager-core.sh	6280	6290	xray_github_asset_name	xray-geodata
-lib/xray-manager-core.sh	6291	6298	xray_github_api	xray-geodata
-lib/xray-manager-core.sh	6299	6311	xray_github_fetch_releases	xray-geodata
-lib/xray-manager-core.sh	6312	6331	xray_github_latest_published	xray-geodata
-lib/xray-manager-core.sh	6332	6353	xray_github_latest_stable	xray-geodata
-lib/xray-manager-core.sh	6354	6374	xray_github_release_history	xray-geodata
-lib/xray-manager-core.sh	6375	6392	xray_github_lookup_tag	xray-geodata
-lib/xray-manager-core.sh	6393	6403	xray_release_label	xray-geodata
-lib/xray-manager-core.sh	6404	6421	xray_ask_manual_version	xray-geodata
-lib/xray-manager-core.sh	6422	6453	xray_release_fetch_failure_menu	xray-geodata
-lib/xray-manager-core.sh	6454	6463	xray_confirm_downgrade	xray-geodata
-lib/xray-manager-core.sh	6464	6477	xray_report_target_action	xray-geodata
-lib/xray-manager-core.sh	6478	6496	xray_backup_core	xray-geodata
-lib/xray-manager-core.sh	6497	6507	xray_restore_core	xray-geodata
-lib/xray-manager-core.sh	6508	6516	xray_service_active	xray-geodata
-lib/xray-manager-core.sh	6517	6531	xray_rollback_after_failure	xray-geodata
-lib/xray-manager-core.sh	6532	6560	xray_verify_new_core	xray-geodata
-lib/xray-manager-core.sh	6561	6611	xray_install_selected_version	xray-geodata
-lib/xray-manager-core.sh	6612	6654	xray_install_official_default	xray-geodata
-lib/xray-manager-core.sh	6655	6711	xray_openrc_install_version	xray-geodata
-lib/xray-manager-core.sh	6712	6768	xray_verify_downloaded_asset	xray-geodata
-lib/xray-manager-core.sh	6769	6787	xray_parse_dgst_sha256	xray-geodata
-lib/xray-manager-core.sh	6788	6845	xray_verify_api_digest	xray-geodata
-lib/xray-manager-core.sh	6846	6874	xray_github_release_for_tag	xray-geodata
-lib/xray-manager-core.sh	6875	6920	xray_history_menu	xray-geodata
-lib/xray-manager-core.sh	6921	6941	xray_print_update_summary	xray-geodata
-lib/xray-manager-core.sh	6942	6958	xray_confirm_install_target	xray-geodata
-lib/xray-manager-core.sh	6959	7082	update_xray	xray-geodata
-lib/xray-manager-core.sh	7083	7114	update_geodata	xray-geodata
-lib/xray-manager-core.sh	7115	7126	detect_ssh_port	firewall-bbr
-lib/xray-manager-core.sh	7127	7147	install_ufw	firewall-bbr
-lib/xray-manager-core.sh	7148	7158	ufw_allow_if_active	firewall-bbr
-lib/xray-manager-core.sh	7159	7192	ufw_safe_enable	firewall-bbr
-lib/xray-manager-core.sh	7193	7202	ufw_add_rule	firewall-bbr
-lib/xray-manager-core.sh	7203	7211	ufw_delete_rule	firewall-bbr
-lib/xray-manager-core.sh	7212	7237	ufw_menu	firewall-bbr
-lib/xray-manager-core.sh	7238	7267	enable_bbr	firewall-bbr
-lib/xray-manager-core.sh	7268	7275	bbr_status	firewall-bbr
-lib/xray-manager-core.sh	7276	7321	validate_backup_archive	config-safety
-lib/xray-manager-core.sh	7322	7481	rollback_restored_directories	config-safety
-lib/xray-manager-core.sh	7482	7500	backup_menu	config-safety
-lib/xray-manager-core.sh	7501	7527	service_menu	
-lib/xray-manager-core.sh	7528	7538	certificate_menu	
-lib/xray-manager-core.sh	7539	7565	system_info	
-lib/xray-manager-core.sh	7566	7590	update_manager_script	
-lib/xray-manager-core.sh	7591	7622	inbound_management_menu	
-lib/xray-manager-core.sh	7623	7651	list_port_forwards	port-forward
-lib/xray-manager-core.sh	7652	7664	delete_port_forward	port-forward
-lib/xray-manager-core.sh	7665	7683	port_forward_menu	port-forward
-lib/xray-manager-core.sh	7684	7694	bbr_menu_action	
-lib/xray-manager-core.sh	7695	7765	main_menu	
+offline-install.sh	75	125	verify_repo_file	
+lib/xray-manager-core.sh	50	50	info	
+lib/xray-manager-core.sh	51	51	ok	
+lib/xray-manager-core.sh	52	52	warn	
+lib/xray-manager-core.sh	53	53	err	
+lib/xray-manager-core.sh	54	55	die	
+lib/xray-manager-core.sh	56	60	pause	
+lib/xray-manager-core.sh	61	66	confirm	
+lib/xray-manager-core.sh	67	72	ask_default	
+lib/xray-manager-core.sh	73	81	ask_required	
+lib/xray-manager-core.sh	82	93	ask_port	
+lib/xray-manager-core.sh	94	101	sanitize_tag	
+lib/xray-manager-core.sh	102	106	tag_exists	
+lib/xray-manager-core.sh	107	119	ask_named_tag	
+lib/xray-manager-core.sh	120	123	ask_tag	
+lib/xray-manager-core.sh	124	128	require_root	
+lib/xray-manager-core.sh	129	159	acquire_manager_lock	
+lib/xray-manager-core.sh	160	185	release_manager_lock	
+lib/xray-manager-core.sh	186	209	detect_xray_run_identity	network-ipv6
+lib/xray-manager-core.sh	210	245	detect_platform	network-ipv6
+lib/xray-manager-core.sh	246	251	load_network_state	network-ipv6
+lib/xray-manager-core.sh	252	266	run_net_command	network-ipv6
+lib/xray-manager-core.sh	267	274	curl_net	network-ipv6
+lib/xray-manager-core.sh	275	294	ensure_bootstrap_curl	network-ipv6
+lib/xray-manager-core.sh	295	299	has_global_ipv4	network-ipv6
+lib/xray-manager-core.sh	300	304	has_global_ipv6	network-ipv6
+lib/xray-manager-core.sh	305	314	default_public_listen	network-ipv6
+lib/xray-manager-core.sh	315	320	test_ipv4_internet	network-ipv6
+lib/xray-manager-core.sh	321	326	test_ipv6_internet	network-ipv6
+lib/xray-manager-core.sh	327	334	test_ipv4_via_default_stack	network-ipv6
+lib/xray-manager-core.sh	335	340	test_official_installer_access	network-ipv6
+lib/xray-manager-core.sh	341	345	curl_supports_doh	network-ipv6
+lib/xray-manager-core.sh	346	362	test_cloudflare_dns64_nat64	network-ipv6
+lib/xray-manager-core.sh	363	366	default_ipv6_interface	network-ipv6
+lib/xray-manager-core.sh	367	427	enable_cloudflare_dns64	network-ipv6
+lib/xray-manager-core.sh	428	461	restore_dns64	network-ipv6
+lib/xray-manager-core.sh	462	488	set_download_proxy	network-ipv6
+lib/xray-manager-core.sh	489	494	clear_download_proxy	network-ipv6
+lib/xray-manager-core.sh	495	510	network_stack_label	network-ipv6
+lib/xray-manager-core.sh	511	529	network_report	network-ipv6
+lib/xray-manager-core.sh	530	584	prepare_download_network	network-ipv6
+lib/xray-manager-core.sh	585	623	ipv6_only_menu	network-ipv6
+lib/xray-manager-core.sh	624	651	pkg_install_base	install-migrate
+lib/xray-manager-core.sh	652	664	ensure_runtime_dependencies	install-migrate
+lib/xray-manager-core.sh	665	677	pkg_install_optional	install-migrate
+lib/xray-manager-core.sh	678	717	ensure_layout	install-migrate
+lib/xray-manager-core.sh	718	733	install_manager_command	install-migrate
+lib/xray-manager-core.sh	734	738	download_to_tmp	install-migrate
+lib/xray-manager-core.sh	739	755	run_systemd_installer	install-migrate
+lib/xray-manager-core.sh	756	760	run_alpine_installer	install-migrate
+lib/xray-manager-core.sh	761	770	configure_openrc_confdir	install-migrate
+lib/xray-manager-core.sh	771	781	offline_sha256_file	install-migrate
+lib/xray-manager-core.sh	782	817	offline_extract_xray	install-migrate
+lib/xray-manager-core.sh	818	831	offline_validate_file	install-migrate
+lib/xray-manager-core.sh	832	858	extract_xray_config_source	install-migrate
+lib/xray-manager-core.sh	859	882	extract_xray_binary_from_command	install-migrate
+lib/xray-manager-core.sh	883	924	discover_existing_xray_binary	install-migrate
+lib/xray-manager-core.sh	925	998	discover_existing_xray_config	install-migrate
+lib/xray-manager-core.sh	999	1029	backup_xray_service_state	install-migrate
+lib/xray-manager-core.sh	1030	1137	migrate_existing_xray_config	install-migrate
+lib/xray-manager-core.sh	1138	1154	prepare_existing_xray_config	install-migrate
+lib/xray-manager-core.sh	1155	1197	configure_systemd_offline_service	install-migrate
+lib/xray-manager-core.sh	1198	1212	configure_openrc_offline_service	install-migrate
+lib/xray-manager-core.sh	1213	1222	depend	install-migrate
+lib/xray-manager-core.sh	1223	1233	configure_offline_service	install-migrate
+lib/xray-manager-core.sh	1234	1299	offline_import_xray	install-migrate
+lib/xray-manager-core.sh	1300	1361	offline_import_geodata	install-migrate
+lib/xray-manager-core.sh	1362	1372	offline_import_menu	install-migrate
+lib/xray-manager-core.sh	1373	1528	install_or_repair_xray	install-migrate
+lib/xray-manager-core.sh	1529	1532	xray_exists	install-migrate
+lib/xray-manager-core.sh	1533	1543	need_xray	install-migrate
+lib/xray-manager-core.sh	1544	1548	test_config_dir	config-safety
+lib/xray-manager-core.sh	1549	1553	test_config	config-safety
+lib/xray-manager-core.sh	1554	1567	service_restart	config-safety
+lib/xray-manager-core.sh	1568	1575	service_start	config-safety
+lib/xray-manager-core.sh	1576	1583	service_stop	config-safety
+lib/xray-manager-core.sh	1584	1591	service_status	config-safety
+lib/xray-manager-core.sh	1592	1611	show_logs	config-safety
+lib/xray-manager-core.sh	1612	1665	backup_now	config-safety
+lib/xray-manager-core.sh	1666	1721	safe_write_config_file	config-safety
+lib/xray-manager-core.sh	1722	1729	safe_write_inbound	config-safety
+lib/xray-manager-core.sh	1730	1754	safe_remove_config_file	config-safety
+lib/xray-manager-core.sh	1755	1759	port_in_use	
+lib/xray-manager-core.sh	1760	1767	warn_port	
+lib/xray-manager-core.sh	1768	1771	random_secret	
+lib/xray-manager-core.sh	1772	1781	generate_shadowsocks_secret	
+lib/xray-manager-core.sh	1782	1786	random_hex	
+lib/xray-manager-core.sh	1787	1803	generate_uuid	
+lib/xray-manager-core.sh	1804	1823	copy_existing_certificate	inbound-transport
+lib/xray-manager-core.sh	1824	1831	install_socat_for_acme	inbound-transport
+lib/xray-manager-core.sh	1832	1871	install_pinned_acme_sh	inbound-transport
+lib/xray-manager-core.sh	1872	1929	acme_issue_certificate	inbound-transport
+lib/xray-manager-core.sh	1930	1957	tls_certificate_wizard	inbound-transport
+lib/xray-manager-core.sh	1958	2051	choose_transport	inbound-transport
+lib/xray-manager-core.sh	2052	2059	random_range	inbound-transport
+lib/xray-manager-core.sh	2060	2076	known_shared_cdn_name	inbound-transport
+lib/xray-manager-core.sh	2077	2106	reality_target_risk_check	inbound-transport
+lib/xray-manager-core.sh	2107	2159	configure_reality_fallback_limits	inbound-transport
+lib/xray-manager-core.sh	2160	2177	generate_reality_keys	inbound-transport
+lib/xray-manager-core.sh	2178	2250	build_reality_settings	inbound-transport
+lib/xray-manager-core.sh	2251	2273	build_tls_settings	inbound-transport
+lib/xray-manager-core.sh	2274	2340	build_stream_settings	inbound-transport
+lib/xray-manager-core.sh	2341	2345	managed_ufw_comment	inbound-transport
+lib/xray-manager-core.sh	2346	2352	managed_ufw_allow	inbound-transport
+lib/xray-manager-core.sh	2353	2369	remove_managed_ufw_rules	inbound-transport
+lib/xray-manager-core.sh	2370	2384	maybe_ufw_for_transport	inbound-transport
+lib/xray-manager-core.sh	2385	2411	show_created_summary	inbound-transport
+lib/xray-manager-core.sh	2412	2460	add_vless	inbound-transport
+lib/xray-manager-core.sh	2461	2497	add_vmess	inbound-transport
+lib/xray-manager-core.sh	2498	2533	add_trojan	inbound-transport
+lib/xray-manager-core.sh	2534	2597	add_shadowsocks	inbound-transport
+lib/xray-manager-core.sh	2598	2643	add_socks	inbound-transport
+lib/xray-manager-core.sh	2644	2671	add_http	inbound-transport
+lib/xray-manager-core.sh	2672	2731	add_hysteria2	inbound-transport
+lib/xray-manager-core.sh	2732	2743	install_wireguard_tools	inbound-transport
+lib/xray-manager-core.sh	2744	2751	validate_wireguard_key	inbound-transport
+lib/xray-manager-core.sh	2752	2763	ask_wireguard_key	inbound-transport
+lib/xray-manager-core.sh	2764	2774	validate_ipv4_address	inbound-transport
+lib/xray-manager-core.sh	2775	2804	validate_ipv6_address	inbound-transport
+lib/xray-manager-core.sh	2805	2817	validate_wireguard_cidr	inbound-transport
+lib/xray-manager-core.sh	2818	2827	validate_wireguard_cidr_list	inbound-transport
+lib/xray-manager-core.sh	2828	2839	ask_wireguard_cidrs	inbound-transport
+lib/xray-manager-core.sh	2840	2855	validate_wireguard_endpoint	inbound-transport
+lib/xray-manager-core.sh	2856	2867	ask_wireguard_endpoint	inbound-transport
+lib/xray-manager-core.sh	2868	2879	ask_wireguard_mtu	inbound-transport
+lib/xray-manager-core.sh	2880	2891	ask_wireguard_keepalive	inbound-transport
+lib/xray-manager-core.sh	2892	2895	wireguard_profile_directory	inbound-transport
+lib/xray-manager-core.sh	2896	2901	wireguard_profile_path	inbound-transport
+lib/xray-manager-core.sh	2902	2926	wireguard_save_profile	inbound-transport
+lib/xray-manager-core.sh	2927	2936	wireguard_peer_label	inbound-transport
+lib/xray-manager-core.sh	2937	2950	wireguard_peer_label_exists	inbound-transport
+lib/xray-manager-core.sh	2951	2965	wireguard_next_client_address	inbound-transport
+lib/xray-manager-core.sh	2966	2971	wireguard_ipv4_integer	inbound-transport
+lib/xray-manager-core.sh	2972	2998	wireguard_ipv6_expanded	inbound-transport
+lib/xray-manager-core.sh	2999	3014	wireguard_ipv6_prefix_match	inbound-transport
+lib/xray-manager-core.sh	3015	3037	wireguard_cidrs_overlap	inbound-transport
+lib/xray-manager-core.sh	3038	3055	wireguard_peer_addresses_available	inbound-transport
+lib/xray-manager-core.sh	3056	3070	wireguard_default_client_routes	inbound-transport
+lib/xray-manager-core.sh	3071	3078	wireguard_server_public_key	inbound-transport
+lib/xray-manager-core.sh	3079	3113	render_wireguard_client_config	inbound-transport
+lib/xray-manager-core.sh	3114	3201	add_wireguard	inbound-transport
+lib/xray-manager-core.sh	3202	3286	add_tunnel	inbound-transport
+lib/xray-manager-core.sh	3287	3335	add_tun	inbound-transport
+lib/xray-manager-core.sh	3336	3361	import_custom_json	inbound-transport
+lib/xray-manager-core.sh	3362	3396	add_inbound_menu	inbound-transport
+lib/xray-manager-core.sh	3397	3435	inbound_inventory_rows	inbound-transport
+lib/xray-manager-core.sh	3436	3455	list_inbounds	inbound-transport
+lib/xray-manager-core.sh	3456	3470	find_any_inbound_file	inbound-transport
+lib/xray-manager-core.sh	3471	3489	resolve_inbound_selection	inbound-transport
+lib/xray-manager-core.sh	3490	3510	choose_inbound_tag	inbound-transport
+lib/xray-manager-core.sh	3511	3523	inbound_networks	inbound-transport
+lib/xray-manager-core.sh	3524	3546	inbound_default_outbound	inbound-transport
+lib/xray-manager-core.sh	3547	3559	inbound_matching_routes	inbound-transport
+lib/xray-manager-core.sh	3560	3654	show_inbound_summary_file	inbound-transport
+lib/xray-manager-core.sh	3655	3662	show_inbound_details	inbound-transport
+lib/xray-manager-core.sh	3663	3692	show_inbound_raw_config	inbound-transport
+lib/xray-manager-core.sh	3693	3706	find_inbound_file	inbound-transport
+lib/xray-manager-core.sh	3707	3724	preview_inbound_change	inbound-transport
+lib/xray-manager-core.sh	3725	3760	write_inbound_candidate	inbound-transport
+lib/xray-manager-core.sh	3761	3787	edit_inbound_json	inbound-transport
+lib/xray-manager-core.sh	3788	3847	edit_inbound	inbound-transport
+lib/xray-manager-core.sh	3848	3854	inbound_supports_user_management	inbound-transport
+lib/xray-manager-core.sh	3855	3864	mask_credential	inbound-transport
+lib/xray-manager-core.sh	3865	3939	list_inbound_users_file	inbound-transport
+lib/xray-manager-core.sh	3940	3957	list_inbound_users	inbound-transport
+lib/xray-manager-core.sh	3958	3961	generate_shadowsocks_user_secret	inbound-transport
+lib/xray-manager-core.sh	3962	3972	inbound_user_label_exists	inbound-transport
+lib/xray-manager-core.sh	3973	4029	add_wireguard_peer	inbound-transport
+lib/xray-manager-core.sh	4030	4097	edit_wireguard_peer	inbound-transport
+lib/xray-manager-core.sh	4098	4123	delete_wireguard_peer	inbound-transport
+lib/xray-manager-core.sh	4124	4227	add_inbound_user	inbound-transport
+lib/xray-manager-core.sh	4228	4342	edit_inbound_user	inbound-transport
+lib/xray-manager-core.sh	4343	4382	delete_inbound_user	inbound-transport
+lib/xray-manager-core.sh	4383	4405	inbound_user_management_menu	inbound-transport
+lib/xray-manager-core.sh	4406	4409	urlencode	inbound-transport
+lib/xray-manager-core.sh	4410	4413	base64_urlsafe	inbound-transport
+lib/xray-manager-core.sh	4414	4423	uri_host	inbound-transport
+lib/xray-manager-core.sh	4424	4433	query_add	inbound-transport
+lib/xray-manager-core.sh	4434	4442	link_transport_name	inbound-transport
+lib/xray-manager-core.sh	4443	4452	reality_public_from_file	inbound-transport
+lib/xray-manager-core.sh	4453	4511	add_stream_link_parameters	inbound-transport
+lib/xray-manager-core.sh	4512	4612	build_share_link	inbound-transport
+lib/xray-manager-core.sh	4613	4620	ensure_qrencode	inbound-transport
+lib/xray-manager-core.sh	4621	4643	show_wireguard_client_config	inbound-transport
+lib/xray-manager-core.sh	4644	4702	show_inbound_share_link	inbound-transport
+lib/xray-manager-core.sh	4703	4735	delete_inbound	inbound-transport
+lib/xray-manager-core.sh	4736	4747	validate_shadowsocks_2022_secret	inbound-transport
+lib/xray-manager-core.sh	4748	4937	diagnose_inbound	inbound-transport
+lib/xray-manager-core.sh	4938	4951	show_inbound_routes	inbound-transport
+lib/xray-manager-core.sh	4952	4997	inbound_detail_menu	inbound-transport
+lib/xray-manager-core.sh	4998	5007	csv_to_json_array	outbound
+lib/xray-manager-core.sh	5008	5020	outbound_tag_exists	outbound
+lib/xray-manager-core.sh	5021	5033	inbound_tag_exists	outbound
+lib/xray-manager-core.sh	5034	5047	find_outbound_file	outbound
+lib/xray-manager-core.sh	5048	5084	list_outbounds	outbound
+lib/xray-manager-core.sh	5085	5097	choose_outbound_tag	outbound
+lib/xray-manager-core.sh	5098	5105	safe_write_outbound	outbound
+lib/xray-manager-core.sh	5106	5137	add_freedom_outbound	outbound
+lib/xray-manager-core.sh	5138	5175	add_plain_proxy_outbound	outbound
+lib/xray-manager-core.sh	5176	5206	add_shadowsocks_outbound	outbound
+lib/xray-manager-core.sh	5207	5228	wireguard_reserved_json	outbound
+lib/xray-manager-core.sh	5229	5248	wireguard_validate_strategy	outbound
+lib/xray-manager-core.sh	5249	5301	build_wireguard_outbound_json	outbound
+lib/xray-manager-core.sh	5302	5312	wireguard_userspace_choice	outbound
+lib/xray-manager-core.sh	5313	5348	add_wireguard_outbound	outbound
+lib/xray-manager-core.sh	5349	5355	wireguard_trim	outbound
+lib/xray-manager-core.sh	5356	5432	parse_wireguard_config	outbound
+lib/xray-manager-core.sh	5433	5472	import_wireguard_outbound	outbound
+lib/xray-manager-core.sh	5473	5494	import_custom_outbound	outbound
+lib/xray-manager-core.sh	5495	5520	show_outbound_details	outbound
+lib/xray-manager-core.sh	5521	5540	outbound_is_referenced	outbound
+lib/xray-manager-core.sh	5541	5565	delete_outbound	outbound
+lib/xray-manager-core.sh	5566	5592	add_outbound_menu	outbound
+lib/xray-manager-core.sh	5593	5615	outbound_menu	outbound
+lib/xray-manager-core.sh	5616	5627	routing_conflict_files	routing
+lib/xray-manager-core.sh	5628	5638	routing_ready	routing
+lib/xray-manager-core.sh	5639	5646	current_routing_json	routing
+lib/xray-manager-core.sh	5647	5652	route_tag_exists	routing
+lib/xray-manager-core.sh	5653	5665	ask_route_tag	routing
+lib/xray-manager-core.sh	5666	5671	write_routing_json	routing
+lib/xray-manager-core.sh	5672	5685	append_route_rule	routing
+lib/xray-manager-core.sh	5686	5705	add_inbound_route_rule	routing
+lib/xray-manager-core.sh	5706	5741	list_routing_rules	routing
+lib/xray-manager-core.sh	5742	5754	add_domain_route	routing
+lib/xray-manager-core.sh	5755	5767	add_ip_route	routing
+lib/xray-manager-core.sh	5768	5781	add_inbound_route	routing
+lib/xray-manager-core.sh	5782	5798	add_ip_family_route	routing
+lib/xray-manager-core.sh	5799	5829	add_china_direct_preset	routing
+lib/xray-manager-core.sh	5830	5879	add_service_route_preset	routing
+lib/xray-manager-core.sh	5880	5902	add_block_preset	routing
+lib/xray-manager-core.sh	5903	5920	set_default_outbound_route	routing
+lib/xray-manager-core.sh	5921	5932	remove_managed_route_tag	routing
+lib/xray-manager-core.sh	5933	5951	import_custom_route_rule	routing
+lib/xray-manager-core.sh	5952	5969	delete_routing_rule	routing
+lib/xray-manager-core.sh	5970	5995	move_routing_rule	routing
+lib/xray-manager-core.sh	5996	6011	set_routing_domain_strategy	routing
+lib/xray-manager-core.sh	6012	6046	add_routing_rule_menu	routing
+lib/xray-manager-core.sh	6047	6077	routing_menu	routing
+lib/xray-manager-core.sh	6078	6087	xray_version_normalize	xray-geodata
+lib/xray-manager-core.sh	6088	6110	xray_version_compare	xray-geodata
+lib/xray-manager-core.sh	6111	6120	xray_version_action	xray-geodata
+lib/xray-manager-core.sh	6121	6132	xray_current_version	xray-geodata
+lib/xray-manager-core.sh	6133	6143	xray_github_asset_name	xray-geodata
+lib/xray-manager-core.sh	6144	6151	xray_github_api	xray-geodata
+lib/xray-manager-core.sh	6152	6164	xray_github_fetch_releases	xray-geodata
+lib/xray-manager-core.sh	6165	6184	xray_github_latest_published	xray-geodata
+lib/xray-manager-core.sh	6185	6206	xray_github_latest_stable	xray-geodata
+lib/xray-manager-core.sh	6207	6227	xray_github_release_history	xray-geodata
+lib/xray-manager-core.sh	6228	6245	xray_github_lookup_tag	xray-geodata
+lib/xray-manager-core.sh	6246	6256	xray_release_label	xray-geodata
+lib/xray-manager-core.sh	6257	6274	xray_ask_manual_version	xray-geodata
+lib/xray-manager-core.sh	6275	6306	xray_release_fetch_failure_menu	xray-geodata
+lib/xray-manager-core.sh	6307	6316	xray_confirm_downgrade	xray-geodata
+lib/xray-manager-core.sh	6317	6330	xray_report_target_action	xray-geodata
+lib/xray-manager-core.sh	6331	6349	xray_backup_core	xray-geodata
+lib/xray-manager-core.sh	6350	6360	xray_restore_core	xray-geodata
+lib/xray-manager-core.sh	6361	6369	xray_service_active	xray-geodata
+lib/xray-manager-core.sh	6370	6384	xray_rollback_after_failure	xray-geodata
+lib/xray-manager-core.sh	6385	6413	xray_verify_new_core	xray-geodata
+lib/xray-manager-core.sh	6414	6464	xray_install_selected_version	xray-geodata
+lib/xray-manager-core.sh	6465	6507	xray_install_official_default	xray-geodata
+lib/xray-manager-core.sh	6508	6564	xray_openrc_install_version	xray-geodata
+lib/xray-manager-core.sh	6565	6621	xray_verify_downloaded_asset	xray-geodata
+lib/xray-manager-core.sh	6622	6640	xray_parse_dgst_sha256	xray-geodata
+lib/xray-manager-core.sh	6641	6698	xray_verify_api_digest	xray-geodata
+lib/xray-manager-core.sh	6699	6727	xray_github_release_for_tag	xray-geodata
+lib/xray-manager-core.sh	6728	6773	xray_history_menu	xray-geodata
+lib/xray-manager-core.sh	6774	6794	xray_print_update_summary	xray-geodata
+lib/xray-manager-core.sh	6795	6811	xray_confirm_install_target	xray-geodata
+lib/xray-manager-core.sh	6812	6928	update_xray	xray-geodata
+lib/xray-manager-core.sh	6929	6955	update_geodata	xray-geodata
+lib/xray-manager-core.sh	6956	6967	detect_ssh_port	firewall-bbr
+lib/xray-manager-core.sh	6968	6988	install_ufw	firewall-bbr
+lib/xray-manager-core.sh	6989	6999	ufw_allow_if_active	firewall-bbr
+lib/xray-manager-core.sh	7000	7033	ufw_safe_enable	firewall-bbr
+lib/xray-manager-core.sh	7034	7043	ufw_add_rule	firewall-bbr
+lib/xray-manager-core.sh	7044	7052	ufw_delete_rule	firewall-bbr
+lib/xray-manager-core.sh	7053	7078	ufw_menu	firewall-bbr
+lib/xray-manager-core.sh	7079	7108	enable_bbr	firewall-bbr
+lib/xray-manager-core.sh	7109	7116	bbr_status	firewall-bbr
+lib/xray-manager-core.sh	7117	7162	validate_backup_archive	config-safety
+lib/xray-manager-core.sh	7163	7322	rollback_restored_directories	config-safety
+lib/xray-manager-core.sh	7323	7341	backup_menu	config-safety
+lib/xray-manager-core.sh	7342	7368	service_menu	
+lib/xray-manager-core.sh	7369	7379	certificate_menu	
+lib/xray-manager-core.sh	7380	7406	system_info	
+lib/xray-manager-core.sh	7407	7431	update_manager_script	
+lib/xray-manager-core.sh	7432	7463	inbound_management_menu	
+lib/xray-manager-core.sh	7464	7492	list_port_forwards	port-forward
+lib/xray-manager-core.sh	7493	7505	delete_port_forward	port-forward
+lib/xray-manager-core.sh	7506	7524	port_forward_menu	port-forward
+lib/xray-manager-core.sh	7525	7535	bbr_menu_action	
+lib/xray-manager-core.sh	7536	7606	main_menu	
 scripts/verify-xray-asset.sh	6	50	usage	
 scripts/verify-xray-asset.sh	51	60	sha256_file	
 scripts/verify-xray-asset.sh	61	69	normalize_sha256	

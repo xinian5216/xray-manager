@@ -20,19 +20,18 @@ trap cleanup EXIT
 
 # area|keywords|implementation files|tests/checks|documentation|Bash symbol regex
 MAP_ROWS=(
-  "launcher|launcher 启动器 自更新 self-update 菜单更新 版本 降级 downgrade 锁 lock 并发 回滚 rollback 原子 current previous 发布 清单 manifest|xray-manager.sh,install.sh,offline-install.sh,cloudflare-install.sh,lib/xray-manager-core.sh|tests/bootstrap-install.sh,tests/cloudflare-update.sh,tests/manager-menu-update.sh,tests/version-lock.sh,tests/atomic-release.sh|README.md,docs/PRIVATE_INSTALL.md,docs/USAGE.md,SECURITY.md|update,version,download,install,lock,rollback,release,manifest"
-  "install-migrate|安装 依赖 dependency jq 修复 迁移 migration systemd openrc 服务 接管 配置恢复 日志 permission denied|install.sh,cloudflare-install.sh,offline-install.sh,lib/xray-manager-core.sh|tests/bootstrap-install.sh,tests/offline-install.sh,tests/config-migration.sh,tests/cloudflare-core-download.sh,tests/smoke-configs.sh|README.md,docs/USAGE.md|discover_,migrate_,configure_.*service,install_or_repair,offline_import,dependenc,layout"
-  "network-ipv6|网络 ipv4 ipv6 only-v6 NAT64 DNS64 下载代理 proxy|lib/xray-manager-core.sh,install.sh,cloudflare-install.sh|tests/cloudflare-core-download.sh,tests/offline-install.sh|docs/IPV6_ONLY.md,README.md|network,ipv[46],dns64,download,proxy,cloudflare"
+  "launcher|launcher 启动器 自更新 self-update 菜单更新 版本 降级 downgrade 锁 lock 并发 回滚 rollback 原子 current previous 发布 清单 manifest|xray-manager.sh,install.sh,offline-install.sh,lib/xray-manager-core.sh|tests/bootstrap-install.sh,tests/manager-menu-update.sh,tests/version-lock.sh,tests/atomic-release.sh|README.md,docs/PRIVATE_INSTALL.md,docs/USAGE.md,SECURITY.md|update,version,download,install,lock,rollback,release,manifest"
+  "install-migrate|安装 依赖 dependency jq 修复 迁移 migration systemd openrc 服务 接管 配置恢复 日志 permission denied|install.sh,offline-install.sh,lib/xray-manager-core.sh|tests/bootstrap-install.sh,tests/offline-install.sh,tests/config-migration.sh,tests/smoke-configs.sh|README.md,docs/USAGE.md|discover_,migrate_,configure_.*service,install_or_repair,offline_import,dependenc,layout"
+  "network-ipv6|网络 ipv4 ipv6 only-v6 NAT64 DNS64 下载代理 proxy|lib/xray-manager-core.sh,install.sh|tests/offline-install.sh|docs/IPV6_ONLY.md,README.md|network,ipv[46],dns64,download,proxy"
   "inbound-transport|入站 inbound 详情 detail 编号 index 诊断 diagnose 外部 external 编辑 edit 用户 user 链接 link 分享 二维码 QR SS2022 VLESS VMess Trojan Shadowsocks SOCKS HTTP Hysteria2 WireGuard peer 公钥 客户端 Tunnel TUN RAW XHTTP gRPC WebSocket REALITY TLS 证书 SNI|lib/xray-manager-core.sh|tests/inbound-management.sh,tests/wireguard-management.sh,tests/smoke-configs.sh,tests/manager-menu-update.sh|docs/USAGE.md,README.md|inbound,user,share,link,transport,reality,tls,certificate,add_,wireguard"
   "outbound|出站 outbound freedom socks http shadowsocks wireguard warp conf 导入 PresharedKey dialerProxy|lib/xray-manager-core.sh|tests/wireguard-management.sh,tests/smoke-configs.sh|docs/USAGE.md,README.md|outbound,wireguard"
   "routing|路由 routing 分流 rule geosite geoip CIDR 默认出口 domainStrategy|lib/xray-manager-core.sh|tests/smoke-configs.sh|docs/USAGE.md,README.md|routing,route"
   "port-forward|端口转发 forwarding forward TCP UDP 监听 目标端口|lib/xray-manager-core.sh|tests/smoke-configs.sh|docs/USAGE.md,README.md|port_forward"
   "config-safety|配置 写入 回滚 backup restore test config conf.d 安全删除 备份 恢复 归档|lib/xray-manager-core.sh|tests/smoke-configs.sh,tests/config-migration.sh,tests/backup-restore.sh|docs/MAINTAINER_GUIDE.md,README.md|safe_,backup,restore,test_config"
-  "xray-geodata|Xray-core core geodata geoip geosite 更新 延迟 release 14天 7天 digest sha256 摘要 完整性 integrity dgst 信任 版本选择 指定版本 prerelease pre-release 预发布 最新发布版 最新稳定版 降级 回滚 backup rollback|lib/xray-manager-core.sh,scripts/select-xray-release.sh,scripts/select-geodata-release.sh,scripts/verify-xray-asset.sh,XRAY_VERSION,.github/workflows/publish-r2.yml|tests/xray-release-delay.sh,tests/xray-version-select.sh,tests/geodata-release-delay.sh,tests/xray-asset-integrity.sh,tests/smoke-configs.sh|README.md,CHANGELOG.md,SECURITY.md|update_xray,update_geodata,xray_version,xray_github,xray_release,xray_current_version,xray_history,xray_install_selected,xray_install_official,xray_openrc,xray_verify,xray_parse,xray_backup_core,xray_restore_core,xray_service_active,xray_rollback,xray_confirm_downgrade,xray_ask_manual,xray_report_target,xray_print_update"
-  "worker-r2|Cloudflare Worker R2 401 403 404 Bearer token install.sh bundle 构建部署 清单 manifest|worker/src/index.ts,worker/wrangler.jsonc,worker/package.json,.github/workflows/publish-r2.yml,cloudflare-install.sh|worker/test/index.spec.ts,worker/package.json,tests/cloudflare-update.sh|worker/README.md,README.md,SECURITY.md|"
+  "xray-geodata|Xray-core core geodata geoip geosite 更新 release digest sha256 摘要 完整性 integrity dgst 信任 版本选择 指定版本 prerelease pre-release 预发布 最新发布版 最新稳定版 降级 回滚 backup rollback|lib/xray-manager-core.sh,scripts/verify-xray-asset.sh,XRAY_VERSION|tests/xray-version-select.sh,tests/xray-asset-integrity.sh,tests/smoke-configs.sh|README.md,CHANGELOG.md,SECURITY.md|update_xray,update_geodata,xray_version,xray_github,xray_release,xray_current_version,xray_history,xray_install_selected,xray_install_official,xray_openrc,xray_verify,xray_parse,xray_backup_core,xray_restore_core,xray_service_active,xray_rollback,xray_confirm_downgrade,xray_ask_manual,xray_report_target,xray_print_update"
   "firewall-bbr|UFW 防火墙 SSH BBR sysctl 端口放行 规则清理|lib/xray-manager-core.sh|tests/inbound-management.sh,tests/smoke-configs.sh|docs/USAGE.md,README.md|ufw,bbr,ssh"
-  "release|发版 version checksum SHA256 changelog release bundle 打包 清单|VERSION,XRAY_VERSION,SHA256SUMS,scripts/refresh-checksums.sh,scripts/verify-xray-asset.sh,.github/workflows/shellcheck.yml,.github/workflows/publish-r2.yml|scripts/maintainer-map.sh,.github/workflows/shellcheck.yml,tests/xray-asset-integrity.sh|CONTRIBUTING.md,CHANGELOG.md,README.md,SECURITY.md|"
-  "ci-tests|CI Actions ShellCheck test smoke 测试失败 workflow|.github/workflows/shellcheck.yml,.github/workflows/publish-r2.yml,tests/smoke-configs.sh|tests/inbound-management.sh,tests/maintainer-map.sh,tests/bootstrap-install.sh,tests/offline-install.sh,tests/cloudflare-update.sh,tests/cloudflare-core-download.sh,tests/config-migration.sh,tests/backup-restore.sh,tests/version-lock.sh,tests/manager-menu-update.sh,tests/atomic-release.sh,tests/xray-release-delay.sh,tests/xray-version-select.sh,tests/geodata-release-delay.sh,tests/xray-asset-integrity.sh|CONTRIBUTING.md,docs/MAINTAINER_GUIDE.md|"
+  "release|发版 version checksum SHA256 changelog release 打包 清单|VERSION,XRAY_VERSION,SHA256SUMS,scripts/refresh-checksums.sh,scripts/verify-xray-asset.sh,.github/workflows/shellcheck.yml|scripts/maintainer-map.sh,.github/workflows/shellcheck.yml,tests/xray-asset-integrity.sh|CONTRIBUTING.md,CHANGELOG.md,README.md,SECURITY.md|"
+  "ci-tests|CI Actions ShellCheck test smoke 测试失败 workflow|.github/workflows/shellcheck.yml,tests/smoke-configs.sh|tests/inbound-management.sh,tests/maintainer-map.sh,tests/bootstrap-install.sh,tests/offline-install.sh,tests/config-migration.sh,tests/backup-restore.sh,tests/version-lock.sh,tests/manager-menu-update.sh,tests/atomic-release.sh,tests/xray-version-select.sh,tests/xray-asset-integrity.sh|CONTRIBUTING.md,docs/MAINTAINER_GUIDE.md|"
 )
 
 # area|file|start_function|end_function  (line ranges are computed; names are the stable contract)
@@ -84,11 +83,8 @@ TOKEN_ALIASES=(
 INDEXED_BASH_FILES=(
   xray-manager.sh
   install.sh
-  cloudflare-install.sh
   offline-install.sh
   lib/xray-manager-core.sh
-  scripts/select-xray-release.sh
-  scripts/select-geodata-release.sh
   scripts/verify-xray-asset.sh
 )
 
@@ -610,9 +606,6 @@ EOF
       slices="${slice_bits[*]}"
       unset IFS
       IFS=$'\n\t'
-    elif [[ "$implementation" == *worker/src/index.ts* ]]; then
-      slices="worker/src/index.ts (whole)"
-      total=$(file_line_count worker/src/index.ts)
     fi
     local when
     when="$(split_words "$keywords" | awk 'NR<=8 {printf "%s%s", (NR==1?"":" / "), $0}')"

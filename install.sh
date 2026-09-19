@@ -8,7 +8,7 @@ REF="${XRAY_MANAGER_REF:-main}"
 API_BASE="https://api.github.com/repos/${REPOSITORY}/contents"
 INSTALL_PATH="${XRAY_MANAGER_INSTALL_PATH:-/usr/local/sbin/xraym}"
 CORE_PATH="${XRAY_MANAGER_CORE_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"
-UPDATE_SOURCE_FILE="${XRAY_MANAGER_UPDATE_SOURCE_FILE:-/etc/xray-manager/manager_update_source}"
+STATE_DIR="${XRAY_MANAGER_STATE_DIR:-/etc/xray-manager}"
 DOWNLOAD_PROXY="${XRAY_DOWNLOAD_PROXY:-}"
 RUN_AFTER_INSTALL=0
 
@@ -184,17 +184,10 @@ install_runtime_dependencies() {
   fi
 }
 
-persist_github_update_source() {
-  local marker="$1"
-  printf 'github\n' >"$marker"
-
-  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-    install -d -m 700 "$(dirname "$UPDATE_SOURCE_FILE")"
-    install -m 600 "$marker" "$UPDATE_SOURCE_FILE"
-  else
-    sudo install -d -m 700 "$(dirname "$UPDATE_SOURCE_FILE")"
-    sudo install -m 600 "$marker" "$UPDATE_SOURCE_FILE"
-  fi
+cleanup_legacy_update_state() {
+  # The Cloudflare/R2 update source was removed; drop the retired state files
+  # if a previous install created them. Failures are never fatal.
+  rm -f "$STATE_DIR/manager_update_source" "$STATE_DIR/cloudflare_url" 2>/dev/null || true
 }
 
 TOKEN="$(get_token)" || {
@@ -231,7 +224,7 @@ bash -n "$TMP/lib/xray-manager-core.sh"
 info "安装 Xray Manager 运行依赖（含 jq、OpenSSL、iproute2）..."
 install_runtime_dependencies "$TMP/lib/xray-manager-core.sh"
 install_release_pair "$TMP/xray-manager.sh" "$TMP/lib/xray-manager-core.sh"
-persist_github_update_source "$TMP/manager_update_source"
+cleanup_legacy_update_state
 ok "Xray Manager 项目版本 $VERSION 安装完成。"
 echo "Launcher: $INSTALL_PATH"
 echo "Core    : $CORE_PATH"

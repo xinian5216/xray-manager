@@ -7,14 +7,14 @@ First contact: read [AGENTS.md](../../AGENTS.md), then this file or `--ai`. Neve
 
 | file | bytes | lines | first contact |
 | --- | ---: | ---: | --- |
-| AGENTS.md | 3878 | 54 | always |
+| AGENTS.md | 3629 | 52 | always |
 | docs/ai/INDEX.md | generated | generated | always |
 | docs/ai/core-symbols.tsv | generated | generated | grep function names |
-| lib/xray-manager-core.sh | 263493 | 7765 | **never whole** — slices only |
-| xray-manager.sh | 27348 | 875 | launcher/self-update only |
-| README.md | 33011 | 606 | user-doc edits only |
-| CHANGELOG.md | 20090 | 275 | release notes only |
-| tests/smoke-configs.sh | 15364 | 421 | config-generation tests |
+| lib/xray-manager-core.sh | 258444 | 7606 | **never whole** — slices only |
+| xray-manager.sh | 21174 | 710 | launcher/self-update only |
+| README.md | 26458 | 505 | user-doc edits only |
+| CHANGELOG.md | 20266 | 280 | release notes only |
+| tests/smoke-configs.sh | 14943 | 421 | config-generation tests |
 
 Cap: about 500 lines of Core per turn. Prefer `bash scripts/maintainer-map.sh --ai "<task>"`.
 
@@ -22,19 +22,18 @@ Cap: about 500 lines of Core per turn. Prefer `bash scripts/maintainer-map.sh --
 
 | area | core slice | lines | tests | when |
 | --- | --- | ---: | --- | --- |
-| `launcher` | xray-manager.sh:38-875 | 838 | tests/bootstrap-install.sh,tests/cloudflare-update.sh,tests/manager-menu-update.sh,tests/version-lock.sh,tests/atomic-release.sh | launcher / 启动器 / 自更新 / self-update / 菜单更新 / 版本 / 降级 / downgrade |
-| `install-migrate` | lib/xray-manager-core.sh:642-1690 | 1049 | tests/bootstrap-install.sh,tests/offline-install.sh,tests/config-migration.sh,tests/cloudflare-core-download.sh,tests/smoke-configs.sh | 安装 / 依赖 / dependency / jq / 修复 / 迁移 / migration / systemd |
-| `network-ipv6` | lib/xray-manager-core.sh:191-641 | 451 | tests/cloudflare-core-download.sh,tests/offline-install.sh | 网络 / ipv4 / ipv6 / only-v6 / NAT64 / DNS64 / 下载代理 / proxy |
-| `inbound-transport` | lib/xray-manager-core.sh:1951-5144 | 3194 | tests/inbound-management.sh,tests/wireguard-management.sh,tests/smoke-configs.sh,tests/manager-menu-update.sh | 入站 / inbound / 详情 / detail / 编号 / index / 诊断 / diagnose |
-| `outbound` | lib/xray-manager-core.sh:5145-5762 | 618 | tests/wireguard-management.sh,tests/smoke-configs.sh | 出站 / outbound / freedom / socks / http / shadowsocks / wireguard / warp |
-| `routing` | lib/xray-manager-core.sh:5763-6224 | 462 | tests/smoke-configs.sh | 路由 / routing / 分流 / rule / geosite / geoip / CIDR / 默认出口 |
-| `port-forward` | lib/xray-manager-core.sh:7623-7683 | 61 | tests/smoke-configs.sh | 端口转发 / forwarding / forward / TCP / UDP / 监听 / 目标端口 |
-| `config-safety` | lib/xray-manager-core.sh:1691-1901,lib/xray-manager-core.sh:7276-7500 | 436 | tests/smoke-configs.sh,tests/config-migration.sh,tests/backup-restore.sh | 配置 / 写入 / 回滚 / backup / restore / test / config / conf.d |
-| `xray-geodata` | lib/xray-manager-core.sh:6225-7114 | 890 | tests/xray-release-delay.sh,tests/xray-version-select.sh,tests/geodata-release-delay.sh,tests/xray-asset-integrity.sh,tests/smoke-configs.sh | Xray-core / core / geodata / geoip / geosite / 更新 / 延迟 / release |
-| `worker-r2` | worker/src/index.ts (whole) | 134 | worker/test/index.spec.ts,worker/package.json,tests/cloudflare-update.sh | Cloudflare / Worker / R2 / 401 / 403 / 404 / Bearer / token |
-| `firewall-bbr` | lib/xray-manager-core.sh:7115-7275 | 161 | tests/inbound-management.sh,tests/smoke-configs.sh | UFW / 防火墙 / SSH / BBR / sysctl / 端口放行 / 规则清理 |
-| `release` | — | 0 | scripts/maintainer-map.sh,.github/workflows/shellcheck.yml,tests/xray-asset-integrity.sh | 发版 / version / checksum / SHA256 / changelog / release / bundle / 打包 |
-| `ci-tests` | — | 0 | tests/inbound-management.sh,tests/maintainer-map.sh,tests/bootstrap-install.sh,tests/offline-install.sh,tests/cloudflare-update.sh,tests/cloudflare-core-download.sh,tests/config-migration.sh,tests/backup-restore.sh,tests/version-lock.sh,tests/manager-menu-update.sh,tests/atomic-release.sh,tests/xray-release-delay.sh,tests/xray-version-select.sh,tests/geodata-release-delay.sh,tests/xray-asset-integrity.sh | CI / Actions / ShellCheck / test / smoke / 测试失败 / workflow |
+| `launcher` | xray-manager.sh:33-710 | 678 | tests/bootstrap-install.sh,tests/manager-menu-update.sh,tests/version-lock.sh,tests/atomic-release.sh | launcher / 启动器 / 自更新 / self-update / 菜单更新 / 版本 / 降级 / downgrade |
+| `install-migrate` | lib/xray-manager-core.sh:624-1543 | 920 | tests/bootstrap-install.sh,tests/offline-install.sh,tests/config-migration.sh,tests/smoke-configs.sh | 安装 / 依赖 / dependency / jq / 修复 / 迁移 / migration / systemd |
+| `network-ipv6` | lib/xray-manager-core.sh:186-623 | 438 | tests/offline-install.sh | 网络 / ipv4 / ipv6 / only-v6 / NAT64 / DNS64 / 下载代理 / proxy |
+| `inbound-transport` | lib/xray-manager-core.sh:1804-4997 | 3194 | tests/inbound-management.sh,tests/wireguard-management.sh,tests/smoke-configs.sh,tests/manager-menu-update.sh | 入站 / inbound / 详情 / detail / 编号 / index / 诊断 / diagnose |
+| `outbound` | lib/xray-manager-core.sh:4998-5615 | 618 | tests/wireguard-management.sh,tests/smoke-configs.sh | 出站 / outbound / freedom / socks / http / shadowsocks / wireguard / warp |
+| `routing` | lib/xray-manager-core.sh:5616-6077 | 462 | tests/smoke-configs.sh | 路由 / routing / 分流 / rule / geosite / geoip / CIDR / 默认出口 |
+| `port-forward` | lib/xray-manager-core.sh:7464-7524 | 61 | tests/smoke-configs.sh | 端口转发 / forwarding / forward / TCP / UDP / 监听 / 目标端口 |
+| `config-safety` | lib/xray-manager-core.sh:1544-1754,lib/xray-manager-core.sh:7117-7341 | 436 | tests/smoke-configs.sh,tests/config-migration.sh,tests/backup-restore.sh | 配置 / 写入 / 回滚 / backup / restore / test / config / conf.d |
+| `xray-geodata` | lib/xray-manager-core.sh:6078-6955 | 878 | tests/xray-version-select.sh,tests/xray-asset-integrity.sh,tests/smoke-configs.sh | Xray-core / core / geodata / geoip / geosite / 更新 / release / digest |
+| `firewall-bbr` | lib/xray-manager-core.sh:6956-7116 | 161 | tests/inbound-management.sh,tests/smoke-configs.sh | UFW / 防火墙 / SSH / BBR / sysctl / 端口放行 / 规则清理 |
+| `release` | — | 0 | scripts/maintainer-map.sh,.github/workflows/shellcheck.yml,tests/xray-asset-integrity.sh | 发版 / version / checksum / SHA256 / changelog / release / 打包 / 清单 |
+| `ci-tests` | — | 0 | tests/inbound-management.sh,tests/maintainer-map.sh,tests/bootstrap-install.sh,tests/offline-install.sh,tests/config-migration.sh,tests/backup-restore.sh,tests/version-lock.sh,tests/manager-menu-update.sh,tests/atomic-release.sh,tests/xray-version-select.sh,tests/xray-asset-integrity.sh | CI / Actions / ShellCheck / test / smoke / 测试失败 / workflow |
 
 ## How to slice
 

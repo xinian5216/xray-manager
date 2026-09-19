@@ -8,7 +8,7 @@
 
 ```bash
 bash scripts/maintainer-map.sh --ai "路由规则顺序"
-bash scripts/maintainer-map.sh --ai "Worker 401"
+bash scripts/maintainer-map.sh --ai "Xray 版本选择"
 bash scripts/maintainer-map.sh --list
 ```
 
@@ -36,8 +36,6 @@ bash tests/maintainer-map.sh
 bash -n xray-manager.sh
 bash -n install.sh
 bash -n offline-install.sh
-bash -n cloudflare-install.sh
-bash -n scripts/select-xray-release.sh
 bash -n scripts/verify-xray-asset.sh
 bash -n scripts/maintainer-map.sh
 bash -n tests/maintainer-map.sh
@@ -47,7 +45,7 @@ bash -n tests/bootstrap-install.sh
 推荐同时运行：
 
 ```bash
-shellcheck xray-manager.sh install.sh offline-install.sh cloudflare-install.sh \
+shellcheck xray-manager.sh install.sh offline-install.sh \
   scripts/maintainer-map.sh scripts/verify-xray-asset.sh tests/maintainer-map.sh
 ```
 
@@ -78,6 +76,4 @@ shellcheck xray-manager.sh install.sh offline-install.sh cloudflare-install.sh \
 
 GitHub Actions 会检查版本一致性和 `SHA256SUMS`。
 
-涉及 R2 分发时，还应确认 `shellcheck.yml` 与 `publish-r2.yml` 使用相同的固定 Xray 版本，并确保发布工作流在上传前完成真实配置冒烟测试。
-
-更新随包分发的 Xray-core 时，只修改根目录 `XRAY_VERSION`，两个工作流都会读取该文件。
+`Validate` 工作流在工作流内下载根目录 `XRAY_VERSION` 指定的 Xray 版本，并运行真实配置 smoke test。更新该基线时只修改根目录 `XRAY_VERSION`。

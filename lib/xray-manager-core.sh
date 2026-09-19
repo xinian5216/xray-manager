@@ -28,11 +28,6 @@ ROUTING_FILE="${CONF_DIR}/30_routing.json"
 DOWNLOAD_PROXY_FILE="${STATE_DIR}/download_proxy"
 DNS64_STATE_FILE="${STATE_DIR}/dns64.state"
 DOWNLOAD_PROXY="${XRAY_DOWNLOAD_PROXY:-}"
-MANAGER_UPDATE_SOURCE_FILE="${XRAY_MANAGER_UPDATE_SOURCE_FILE:-${STATE_DIR}/manager_update_source}"
-CLOUDFLARE_URL_FILE="${XRAY_MANAGER_CLOUDFLARE_URL_FILE:-${STATE_DIR}/cloudflare_url}"
-CLOUDFLARE_BASE_DEFAULT="https://xray-manager-download.xinian5216.workers.dev"
-CLOUDFLARE_BASE="${XRAY_MANAGER_CLOUDFLARE_URL:-}"
-UPDATE_SOURCE="${XRAY_MANAGER_UPDATE_SOURCE:-}"
 CONFIG_MIGRATION_STATE_FILE="${XRAY_MANAGER_CONFIG_MIGRATION_STATE_FILE:-${STATE_DIR}/config_migration.state}"
 SYSTEMD_MANAGER_DROPIN="${XRAY_MANAGER_SYSTEMD_DROPIN:-/etc/systemd/system/xray.service.d/20-xray-manager-offline.conf}"
 LOCK_DIR="${XRAY_MANAGER_LOCK_DIR:-/run/xray-manager.lock}"
@@ -252,19 +247,6 @@ load_network_state() {
   if [[ -z "${DOWNLOAD_PROXY:-}" && -r "$DOWNLOAD_PROXY_FILE" ]]; then
     DOWNLOAD_PROXY="$(head -n 1 "$DOWNLOAD_PROXY_FILE" 2>/dev/null || true)"
   fi
-
-  if [[ -z "${UPDATE_SOURCE:-}" && -r "$MANAGER_UPDATE_SOURCE_FILE" ]]; then
-    UPDATE_SOURCE="$(tr -d '[:space:]' <"$MANAGER_UPDATE_SOURCE_FILE" 2>/dev/null || true)"
-  fi
-  if [[ -z "${CLOUDFLARE_BASE:-}" && -r "$CLOUDFLARE_URL_FILE" ]]; then
-    CLOUDFLARE_BASE="$(tr -d '[:space:]' <"$CLOUDFLARE_URL_FILE" 2>/dev/null || true)"
-  fi
-  CLOUDFLARE_BASE="${CLOUDFLARE_BASE:-$CLOUDFLARE_BASE_DEFAULT}"
-}
-
-uses_cloudflare_distribution() {
-  load_network_state
-  [[ "${UPDATE_SOURCE:-}" == "cloudflare" ]]
 }
 
 run_net_command() {
@@ -752,116 +734,6 @@ install_manager_command() {
 download_to_tmp() {
   local url="$1" out="$2"
   curl_net -fL --retry 4 --connect-timeout 12 --max-time 180 -o "$out" "$url"
-}
-
-get_cloudflare_install_token() {
-  local token="${XRAY_MANAGER_INSTALL_TOKEN:-}"
-  if [[ -z "$token" && -r /dev/tty ]]; then
-    printf "Cloudflare 安装密钥: " >/dev/tty
-    IFS= read -r -s token </dev/tty || true
-    printf "\n" >/dev/tty
-  fi
-  [[ -n "$token" ]] || return 1
-  printf '%s' "$token"
-}
-
-cloudflare_distribution_arch() {
-  case "$(uname -m)" in
-    x86_64|amd64) printf 'amd64' ;;
-    aarch64|arm64) printf 'arm64' ;;
-    *)
-      err "Cloudflare 分发暂不支持当前架构：$(uname -m)"
-      return 1
-      ;;
-  esac
-}
-
-cloudflare_download_payload() {
-  local target="$1" token arch package checksum config expected actual listing
-
-  ensure_bootstrap_curl || {
-    err "缺少 curl，无法访问 Cloudflare 分发。"
-    return 1
-  }
-  command -v tar >/dev/null 2>&1 || {
-    err "缺少 tar，无法解压 Cloudflare 离线包。"
-    return 1
-  }
-
-  load_network_state
-  arch="$(cloudflare_distribution_arch)" || return 1
-  token="$(get_cloudflare_install_token)" || {
-    err "没有 Cloudflare 安装密钥。"
-    return 1
-  }
-
-  package="latest-${arch}.tar.gz"
-  checksum="latest-${arch}.sha256"
-  mkdir -p "$target/download" "$target/extracted"
-  config="$target/download/curl.conf"
-
-  printf '%s\n' \
-    "header = \"Authorization: Bearer ${token}\"" \
-    "fail" \
-    "silent" \
-    "show-error" \
-    "location" \
-    "connect-timeout = 15" \
-    "max-time = 300" \
-    "retry = 3" >"$config"
-  chmod 600 "$config"
-  unset token XRAY_MANAGER_INSTALL_TOKEN 2>/dev/null || true
-
-  info "从 Cloudflare 私有 R2 分发获取 Xray + GeoData..."
-  curl --config "$config" \
-    "$CLOUDFLARE_BASE/releases/$package" \
-    -o "$target/download/$package" || return 1
-  curl --config "$config" \
-    "$CLOUDFLARE_BASE/releases/$checksum" \
-    -o "$target/download/$checksum" || return 1
-
-  expected="$(tr -d '[:space:]' <"$target/download/$checksum")"
-  actual="$(offline_sha256_file "$target/download/$package")"
-  [[ "$expected" =~ ^[[:xdigit:]]{64}$ && "$expected" == "$actual" ]] || {
-    err "Cloudflare 离线包 SHA256 校验失败。"
-    return 1
-  }
-
-  listing="$(tar -tzf "$target/download/$package")" || {
-    err "Cloudflare 离线包无法读取。"
-    return 1
-  }
-  if grep -Eq '(^/|(^|/)\.\.(/|$))' <<<"$listing"; then
-    err "Cloudflare 离线包包含不安全路径，拒绝解压。"
-    return 1
-  fi
-  tar -xzf "$target/download/$package" -C "$target/extracted"
-
-  case "$arch" in
-    amd64) CLOUDFLARE_XRAY_ZIP="$target/extracted/payload/Xray-linux-64.zip" ;;
-    arm64) CLOUDFLARE_XRAY_ZIP="$target/extracted/payload/Xray-linux-arm64-v8a.zip" ;;
-  esac
-  CLOUDFLARE_GEOIP="$target/extracted/payload/geoip.dat"
-  CLOUDFLARE_GEOSITE="$target/extracted/payload/geosite.dat"
-
-  offline_validate_file "$CLOUDFLARE_XRAY_ZIP" "Cloudflare Xray 压缩包" 1024 || return 1
-  offline_validate_file "$CLOUDFLARE_GEOIP" "Cloudflare GeoIP" 1024 || return 1
-  offline_validate_file "$CLOUDFLARE_GEOSITE" "Cloudflare GeoSite" 1024 || return 1
-}
-
-cloudflare_install_or_update_xray() {
-  local tmp rc=0
-  tmp="$(mktemp -d)"
-  if cloudflare_download_payload "$tmp"; then
-    offline_import_xray \
-      "$CLOUDFLARE_XRAY_ZIP" \
-      "$CLOUDFLARE_GEOIP" \
-      "$CLOUDFLARE_GEOSITE" || rc=$?
-  else
-    rc=$?
-  fi
-  rm -rf "$tmp"
-  return "$rc"
 }
 
 run_systemd_installer() {
@@ -1487,20 +1359,6 @@ offline_import_geodata() {
   return 1
 }
 
-cloudflare_update_geodata() {
-  local tmp rc=0
-  tmp="$(mktemp -d)"
-  if cloudflare_download_payload "$tmp"; then
-    offline_import_geodata \
-      "$CLOUDFLARE_GEOIP" \
-      "$CLOUDFLARE_GEOSITE" || rc=$?
-  else
-    rc=$?
-  fi
-  rm -rf "$tmp"
-  return "$rc"
-}
-
 offline_import_menu() {
   local archive geoip geosite
   echo "========== 完全离线安装 / 导入 =========="
@@ -1517,11 +1375,6 @@ install_or_repair_xray() {
   prepare_existing_xray_config || return 1
   ensure_layout
   load_network_state
-  if uses_cloudflare_distribution; then
-    info "安装来源为 Cloudflare，直接使用私有 R2 离线包。"
-    cloudflare_install_or_update_xray
-    return
-  fi
   prepare_download_network || return 1
   pkg_install_base
 
@@ -6960,13 +6813,6 @@ update_xray() {
   need_xray || return
   ensure_layout
   load_network_state
-  if uses_cloudflare_distribution; then
-    info "更新来源为 Cloudflare，不访问 GitHub/XTLS。"
-    info "当前使用 Cloudflare/R2 已验证版本通道。"
-    info "该通道不提供任意 Xray Core 版本选择。"
-    cloudflare_install_or_update_xray
-    return
-  fi
   prepare_download_network || return 1
   pkg_install_base
 
@@ -7084,11 +6930,6 @@ update_geodata() {
   need_xray || return
   ensure_layout
   load_network_state
-  if uses_cloudflare_distribution; then
-    info "更新来源为 Cloudflare，不访问 GitHub/XTLS。"
-    cloudflare_update_geodata
-    return
-  fi
   prepare_download_network || return 1
   local tmp
   tmp="$(mktemp -d)"
@@ -7549,7 +7390,7 @@ system_info() {
   echo "Network      : $(network_stack_label)"
   echo "DNS64        : $([[ -s "$DNS64_STATE_FILE" ]] && echo enabled-by-script || echo default)"
   echo "Dl proxy     : $([[ -n "${DOWNLOAD_PROXY:-}" ]] && echo configured || echo none)"
-  echo "Dl source    : ${UPDATE_SOURCE:-official}"
+  echo "Dl source    : GitHub"
   if xray_exists; then
     "$XRAY_BIN" version 2>/dev/null | head -n 1 || "$XRAY_BIN" -version 2>/dev/null | head -n 1 || true
   else

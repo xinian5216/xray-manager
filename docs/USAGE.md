@@ -27,7 +27,7 @@ sudo xraym
 2. 检测网络条件
 3. 在 IPv6-only VPS 上检查 NAT64 / DNS64 / 下载代理
 4. 安装基础依赖
-5. 选择 Xray Core 版本（GitHub 来源；Cloudflare 来源直接使用 R2 已验证版本）
+5. 选择 Xray Core 版本（最新发布版 / 最新稳定版 / 历史版本 / 手动输入）
 6. 调用 XTLS 官方安装器或离线导入流程安装所选版本
 7. 初始化多文件配置目录
 8. 测试配置
@@ -235,7 +235,7 @@ WireGuard 创建入站时可自动生成客户端密钥对和 `10.66.66.x/32` �
 sudo xraym --self-update
 ```
 
-通过 Cloudflare 安装时会继续使用 Worker + 私有 R2，并再次提示安装密钥；更新前会核对外层发布清单、包 SHA256 和内嵌 `release-manifest.json`。通过 GitHub 安装时继续使用 Fine-grained PAT 与 `SHA256SUMS`。也可用 `--self-update-cloudflare` 或 `--self-update-github` 强制指定。
+`xraym --self-update` 只从私有 GitHub 仓库更新 Launcher + Core：读取 `VERSION`、校验 `SHA256SUMS`、执行 `bash -n`、原子切换 `current`。Token 只在本次使用，不会持久保存。
 
 更新器只接受并严格比较 `MAJOR.MINOR.PATCH` 三段式版本号。升级默认允许；相同版本会要求确认后重装；降级默认拒绝，确需回退时显式执行：
 
@@ -287,7 +287,6 @@ Pre-release 需要再次确认；降级（目标版本低于当前版本）默�
 
 GitHub API 不可用（超时、限额、JSON 异常）时可以选择重试、手动输入版本或返回；手动输入也必须通过 Release 元数据验证。Alpine/OpenRC 会改用官方 Release ZIP + SHA256 校验（GitHub API digest 与 `.dgst` 交叉核对）并经离线导入安装。
 
-Cloudflare/R2 更新来源不会访问 GitHub，也不提供版本选择，继续使用项目 CI 验证并经过 14 天观察期的版本。
 
 ## 12. UFW
 

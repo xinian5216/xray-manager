@@ -751,25 +751,9 @@ set -e
 [[ "$(wc -l <"$CONFIRM_LOG")" -eq 1 ]] ||
   fail "confirmed reinstall asked more than once: $(cat "$CONFIRM_LOG")"
 
-# 12f. Cloudflare mode must not touch GitHub and must not offer version choice.
-rm -f "$TEST_ROOT/cloudflare.log"
-xray_github_fetch_releases() { fail "Cloudflare mode called the GitHub API"; }
-uses_cloudflare_distribution() { return 0; }
-cloudflare_install_or_update_xray() { printf 'cloudflare-update\n' >>"$TEST_ROOT/cloudflare.log"; }
-set +e
-printf '1\n' | update_xray >"$update_xray_output" 2>&1
-cf_rc=$?
-set -e
-(( cf_rc == 0 )) || fail "Cloudflare update path failed"
-grep -q '不提供任意 Xray Core 版本选择' "$update_xray_output" ||
-  fail "Cloudflare channel did not explain the version policy"
-grep -q 'cloudflare-update' "$TEST_ROOT/cloudflare.log" ||
-  fail "Cloudflare update was not dispatched"
-
 # ---------------------------------------------------------------------------
 # 13. Unsupported architecture falls back to the official default version
 # ---------------------------------------------------------------------------
-uses_cloudflare_distribution() { return 1; } # undo the 12f stub
 xray_github_fetch_releases() { printf '[]' >"$1"; return 0; }
 FALLBACK_LOG="$TEST_ROOT/fallback.log"
 xray_install_official_default() { printf 'fallback\n' >>"$FALLBACK_LOG"; return 0; }

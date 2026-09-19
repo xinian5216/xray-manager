@@ -12,7 +12,7 @@ GEOSITE_FILE=""
 RUN_AFTER_INSTALL=0
 INSTALL_PATH="${XRAY_MANAGER_INSTALL_PATH:-/usr/local/sbin/xraym}"
 CORE_PATH="${XRAY_MANAGER_CORE_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"
-UPDATE_STATE_DIR="${XRAY_MANAGER_STATE_DIR:-/etc/xray-manager}"
+STATE_DIR="${XRAY_MANAGER_STATE_DIR:-/etc/xray-manager}"
 
 err() { printf '[x] %s\n' "$*" >&2; }
 ok() { printf '[✓] %s\n' "$*"; }
@@ -54,7 +54,7 @@ if (( ${#missing_commands[@]} > 0 )); then
   printf -v missing_list '%s, ' "${missing_commands[@]}"
   missing_list="${missing_list%, }"
   err "Missing runtime dependencies: $missing_list"
-  err "The fully offline installer never contacts package repositories. Install them before disconnecting, or use the GitHub/Cloudflare bootstrap."
+  err "The fully offline installer never contacts package repositories. Install them before disconnecting, or use the GitHub bootstrap."
   exit 1
 fi
 
@@ -112,23 +112,9 @@ export XRAY_MANAGER_CORE_PATH="$CORE_PATH"
 source "$ROOT_DIR/xray-manager.sh"
 install_pair "$ROOT_DIR/xray-manager.sh" "$ROOT_DIR/lib/xray-manager-core.sh"
 
-if [[ -n "${XRAY_MANAGER_UPDATE_SOURCE:-}" ]]; then
-  case "$XRAY_MANAGER_UPDATE_SOURCE" in
-    cloudflare|github) ;;
-    *) err "Invalid manager update source: $XRAY_MANAGER_UPDATE_SOURCE"; exit 1 ;;
-  esac
-  install -d -m 700 "$UPDATE_STATE_DIR"
-  printf '%s\n' "$XRAY_MANAGER_UPDATE_SOURCE" \
-    >"$UPDATE_STATE_DIR/manager_update_source"
-  chmod 600 "$UPDATE_STATE_DIR/manager_update_source"
-fi
-
-if [[ -n "${XRAY_MANAGER_CLOUDFLARE_URL:-}" ]]; then
-  install -d -m 700 "$UPDATE_STATE_DIR"
-  printf '%s\n' "${XRAY_MANAGER_CLOUDFLARE_URL%/}" \
-    >"$UPDATE_STATE_DIR/cloudflare_url"
-  chmod 600 "$UPDATE_STATE_DIR/cloudflare_url"
-fi
+# Best-effort cleanup of the retired Cloudflare/R2 update-source state files.
+rm -f "$STATE_DIR/manager_update_source" "$STATE_DIR/cloudflare_url" \
+  2>/dev/null || true
 
 ok "Xray Manager has been installed without network access."
 echo "Launcher: $INSTALL_PATH"

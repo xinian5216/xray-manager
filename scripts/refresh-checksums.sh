@@ -6,7 +6,6 @@ sha256sum \
   lib/xray-manager-core.sh \
   install.sh \
   offline-install.sh \
-  cloudflare-install.sh \
   > SHA256SUMS
 echo "Updated SHA256SUMS:"
 cat SHA256SUMS

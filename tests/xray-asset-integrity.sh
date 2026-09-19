@@ -120,8 +120,4 @@ expect_fail "wrong architecture" --json "$TEST_ROOT/releases.json" --tag v26.3.2
 printf '[]\n' >"$TEST_ROOT/empty.json"
 expect_fail "API unavailable / empty list" --json "$TEST_ROOT/empty.json" --tag v26.3.27 --name Xray-linux-64.zip --file "$payload"
 
-FALLBACK="$(bash "$ROOT_DIR/scripts/select-xray-release.sh" \
-  "$TEST_ROOT/empty.json" v26.3.27 14 1700000000)"
-[[ "$FALLBACK" == "v26.3.27" ]]
-
 echo "Xray asset integrity tests passed."

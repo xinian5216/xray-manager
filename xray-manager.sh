@@ -15,11 +15,6 @@ RELEASES_DIR="${XRAY_MANAGER_RELEASES_DIR:-}"
 CURRENT_LINK="${XRAY_MANAGER_CURRENT_LINK:-}"
 PREVIOUS_LINK="${XRAY_MANAGER_PREVIOUS_LINK:-}"
 DOWNLOAD_PROXY="${XRAY_DOWNLOAD_PROXY:-}"
-CLOUDFLARE_BASE_DEFAULT="https://xray-manager-download.xinian5216.workers.dev"
-CLOUDFLARE_BASE="${XRAY_MANAGER_CLOUDFLARE_URL:-}"
-UPDATE_SOURCE="${XRAY_MANAGER_UPDATE_SOURCE:-}"
-UPDATE_SOURCE_FILE="${XRAY_MANAGER_UPDATE_SOURCE_FILE:-/etc/xray-manager/manager_update_source}"
-CLOUDFLARE_URL_FILE="${XRAY_MANAGER_CLOUDFLARE_URL_FILE:-/etc/xray-manager/cloudflare_url}"
 LOCK_DIR="${XRAY_MANAGER_LOCK_DIR:-/run/xray-manager.lock}"
 ALLOW_DOWNGRADE=0
 MANAGER_LOCK_HELD=0
@@ -41,9 +36,7 @@ Xray Manager Launcher ${PROJECT_VERSION}
 
 Usage:
   xraym                     启动 Xray Manager 核心菜单
-  xraym --self-update       按安装来源更新 Launcher + Core
-  xraym --self-update-cloudflare  强制从 Cloudflare 私有分发更新
-  xraym --self-update-github      强制从私有 GitHub 仓库更新
+  xraym --self-update       从私有 GitHub 仓库更新 Launcher + Core
   xraym --self-update [--allow-downgrade]
   xraym --rollback          切换到已校验的本地上一版本
   xraym --version           查看项目与核心版本
@@ -52,9 +45,6 @@ Usage:
 Environment:
   XRAY_MANAGER_GITHUB_TOKEN 私有仓库 Fine-grained PAT
   GH_TOKEN                  兼容 GitHub Token 环境变量
-  XRAY_MANAGER_INSTALL_TOKEN Cloudflare Worker 安装密钥
-  XRAY_MANAGER_UPDATE_SOURCE cloudflare 或 github
-  XRAY_MANAGER_CLOUDFLARE_URL Cloudflare Worker 基础 URL
   XRAY_DOWNLOAD_PROXY       HTTP/SOCKS5 下载代理
   XRAY_MANAGER_REF          Git 分支/标签，默认 main
   XRAY_MANAGER_LOCK_DIR     全局操作锁目录，默认 /run/xray-manager.lock
@@ -162,32 +152,17 @@ with_manager_lock() (
   "$@"
 )
 
-load_update_channel() {
-  if [[ -z "$UPDATE_SOURCE" && -r "$UPDATE_SOURCE_FILE" ]]; then
-    UPDATE_SOURCE="$(tr -d '[:space:]' <"$UPDATE_SOURCE_FILE")"
-  fi
-  if [[ -z "$CLOUDFLARE_BASE" && -r "$CLOUDFLARE_URL_FILE" ]]; then
-    CLOUDFLARE_BASE="$(tr -d '[:space:]' <"$CLOUDFLARE_URL_FILE")"
-  fi
-  CLOUDFLARE_BASE="${CLOUDFLARE_BASE:-$CLOUDFLARE_BASE_DEFAULT}"
-  UPDATE_SOURCE="${UPDATE_SOURCE:-github}"
+cleanup_legacy_update_state() {
+  # The Cloudflare/R2 update source no longer exists. Old installs may still
+  # carry these marker files; delete them best-effort and never block updates.
+  rm -f /etc/xray-manager/manager_update_source \
+        /etc/xray-manager/cloudflare_url 2>/dev/null || true
 }
 
 get_token() {
   local token="${XRAY_MANAGER_GITHUB_TOKEN:-${GH_TOKEN:-}}"
   if [[ -z "$token" && -r /dev/tty ]]; then
     printf "GitHub Fine-grained PAT（xray-manager / Contents: Read）: " >/dev/tty
-    IFS= read -r -s token </dev/tty || true
-    printf "\n" >/dev/tty
-  fi
-  [[ -n "$token" ]] || return 1
-  printf '%s' "$token"
-}
-
-get_install_token() {
-  local token="${XRAY_MANAGER_INSTALL_TOKEN:-}"
-  if [[ -z "$token" && -r /dev/tty ]]; then
-    printf "Cloudflare 安装密钥: " >/dev/tty
     IFS= read -r -s token </dev/tty || true
     printf "\n" >/dev/tty
   fi
@@ -225,24 +200,6 @@ sha256_file() {
   else
     return 1
   fi
-}
-
-verify_extracted_release_manifest() {
-  local manager_dir="$1" manifest version
-  manifest="$manager_dir/release-manifest.json"
-  [[ -f "$manifest" && -f "$manager_dir/VERSION" ]] || {
-    err "更新包缺少发布清单或 VERSION。"
-    return 1
-  }
-  version="$(tr -d '[:space:]' <"$manager_dir/VERSION")"
-  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-    err "更新包 VERSION 无效。"
-    return 1
-  }
-  grep -Eq "\"manager_version\"[[:space:]]*:[[:space:]]*\"${version}\"" "$manifest" || {
-    err "发布清单与 VERSION 不一致。"
-    return 1
-  }
 }
 
 verify_payload() {
@@ -681,125 +638,9 @@ self_update_github() {
   trap - RETURN
 }
 
-self_update_cloudflare() {
-  command -v curl >/dev/null 2>&1 || {
-    err "缺少 curl，无法更新。"
-    return 1
-  }
-  command -v tar >/dev/null 2>&1 || {
-    err "缺少 tar，无法解压更新包。"
-    return 1
-  }
-
-  load_update_channel
-
-  local token tmp config arch package checksum expected actual manager latest manifest_sha
-  token="$(get_install_token)" || {
-    err "没有 Cloudflare 安装密钥。"
-    return 1
-  }
-
-  case "$(uname -m)" in
-    x86_64|amd64) arch="amd64" ;;
-    aarch64|arm64) arch="arm64" ;;
-    *) err "Cloudflare 更新暂不支持当前架构：$(uname -m)"; return 1 ;;
-  esac
-
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
-  chmod 700 "$tmp"
-  config="$tmp/curl.conf"
-  package="latest-${arch}.tar.gz"
-  checksum="latest-${arch}.sha256"
-
-  printf '%s\n' \
-    "header = \"Authorization: Bearer ${token}\"" \
-    "fail" \
-    "silent" \
-    "show-error" \
-    "location" \
-    "connect-timeout = 15" \
-    "max-time = 300" \
-    "retry = 3" >"$config"
-  chmod 600 "$config"
-  unset token XRAY_MANAGER_INSTALL_TOKEN 2>/dev/null || true
-
-  info "从 Cloudflare 私有分发下载更新包..."
-  curl --config "$config" \
-    "$CLOUDFLARE_BASE/releases/$package" \
-    -o "$tmp/$package"
-  curl --config "$config" \
-    "$CLOUDFLARE_BASE/releases/$checksum" \
-    -o "$tmp/$checksum"
-  curl --config "$config" \
-    "$CLOUDFLARE_BASE/releases/manifest.json" \
-    -o "$tmp/manifest.json"
-
-  expected="$(tr -d '[:space:]' <"$tmp/$checksum")"
-  actual="$(sha256_file "$tmp/$package" 2>/dev/null || true)"
-  [[ -n "$expected" && "$expected" == "$actual" ]] || {
-    err "Cloudflare 更新包 SHA256 校验失败。"
-    return 1
-  }
-  command -v jq >/dev/null 2>&1 || {
-    err "Cloudflare 更新需要 jq 校验发布清单。"
-    return 1
-  }
-  manifest_sha="$(jq -r --arg arch "$arch" '.packages[$arch].sha256 // empty' "$tmp/manifest.json")"
-  [[ "$manifest_sha" =~ ^[0-9a-f]{64}$ && "$manifest_sha" == "$actual" ]] || {
-    err "Cloudflare 发布清单与安装包摘要不一致。"
-    return 1
-  }
-
-  mkdir -p "$tmp/extracted"
-  tar -xzf "$tmp/$package" -C "$tmp/extracted"
-  manager="$tmp/extracted/xray-manager"
-
-  for file in VERSION SHA256SUMS xray-manager.sh lib/xray-manager-core.sh release-manifest.json; do
-    [[ -f "$manager/$file" ]] || {
-      err "更新包缺少文件：$file"
-      return 1
-    }
-  done
-  verify_extracted_release_manifest "$manager" || return 1
-
-  latest="$(tr -d '[:space:]' <"$manager/VERSION")"
-  echo "本机项目版本：$PROJECT_VERSION"
-  echo "分发项目版本：$latest"
-
-  if approve_target_version "$latest"; then
-    :
-  else
-    local version_rc=$?
-    (( version_rc == 10 )) && return 0
-    return "$version_rc"
-  fi
-
-  verify_payload "$manager/SHA256SUMS" "$manager" \
-    "xray-manager.sh" "lib/xray-manager-core.sh" || return 1
-  patch_core_for_launcher "$manager/lib/xray-manager-core.sh" || return 1
-  bash -n "$manager/xray-manager.sh"
-  bash -n "$manager/lib/xray-manager-core.sh"
-  install_pair "$manager/xray-manager.sh" "$manager/lib/xray-manager-core.sh"
-
-  ok "Xray Manager 已通过 Cloudflare 更新到：$latest"
-  info "重新运行 sudo xraym 即可。"
-
-  rm -rf "$tmp"
-  trap - RETURN
-}
-
 self_update() {
-  load_update_channel
-  case "$UPDATE_SOURCE" in
-    cloudflare) self_update_cloudflare ;;
-    github) self_update_github ;;
-    *)
-      err "未知更新来源：$UPDATE_SOURCE"
-      warn "可设置 XRAY_MANAGER_UPDATE_SOURCE=cloudflare 或 github。"
-      return 1
-      ;;
-  esac
+  cleanup_legacy_update_state
+  self_update_github
 }
 
 print_version() {
@@ -830,7 +671,7 @@ run_core() {
   fi
   if [[ ! -f "$CORE_PATH" ]]; then
     err "未找到核心脚本：$CORE_PATH"
-    warn "请重新运行 Cloudflare 或私有 GitHub 安装入口。"
+    warn "请重新运行 install.sh 或 offline-install.sh 安装入口。"
     exit 1
   fi
   export XRAY_MANAGER_CORE_INSTALL_PATH="$CORE_PATH"
@@ -850,12 +691,6 @@ esac
 case "${1:-}" in
   --self-update|update-manager)
     with_manager_lock "Manager 自更新" self_update
-    ;;
-  --self-update-cloudflare)
-    with_manager_lock "Cloudflare Manager 自更新" self_update_cloudflare
-    ;;
-  --self-update-github)
-    with_manager_lock "GitHub Manager 自更新" self_update_github
     ;;
   --rollback)
     with_manager_lock "Manager 回滚" rollback_manager

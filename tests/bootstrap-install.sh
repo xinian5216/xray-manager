@@ -57,19 +57,27 @@ chmod 755 "$MOCK_BIN/curl" "$MOCK_BIN/apt-get"
 export XRAY_TEST_ROOT_DIR="$ROOT_DIR"
 export XRAY_TEST_APT_LOG="$TEST_ROOT/apt.log"
 
+# Simulate a machine upgraded from the removed Cloudflare/R2 channel: the
+# installer must ignore and clean up the retired state files.
+mkdir -p "$INSTALL_ROOT/state"
+printf 'cloudflare\n' >"$INSTALL_ROOT/state/manager_update_source"
+printf 'https://worker.example.invalid\n' >"$INSTALL_ROOT/state/cloudflare_url"
+
 PATH="$MOCK_BIN:$PATH" \
 XRAY_MANAGER_GITHUB_TOKEN="test-token" \
+XRAY_MANAGER_STATE_DIR="$INSTALL_ROOT/state" \
 XRAY_MANAGER_INSTALL_PATH="$INSTALL_ROOT/xraym" \
 XRAY_MANAGER_CORE_PATH="$INSTALL_ROOT/lib/xray-manager-core.sh" \
-XRAY_MANAGER_UPDATE_SOURCE_FILE="$INSTALL_ROOT/state/manager_update_source" \
   bash "$ROOT_DIR/install.sh"
 
 cmp "$ROOT_DIR/xray-manager.sh" "$INSTALL_ROOT/xraym"
 cmp "$ROOT_DIR/lib/xray-manager-core.sh" "$INSTALL_ROOT/lib/xray-manager-core.sh"
 grep -Fxq 'update' "$XRAY_TEST_APT_LOG"
 grep -Eq '^install -y .*jq .*openssl .*unzip .*iproute2' "$XRAY_TEST_APT_LOG"
-grep -Fxq 'github' "$INSTALL_ROOT/state/manager_update_source"
-grep -Fq 'bash "$CORE" --install-dependencies' "$ROOT_DIR/cloudflare-install.sh"
+[[ ! -e "$INSTALL_ROOT/state/manager_update_source" ]] ||
+  { echo "Retired manager_update_source was not cleaned up." >&2; exit 1; }
+[[ ! -e "$INSTALL_ROOT/state/cloudflare_url" ]] ||
+  { echo "Retired cloudflare_url was not cleaned up." >&2; exit 1; }
 
 set +e
 failure_output="$(
