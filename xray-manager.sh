@@ -3,8 +3,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-PROJECT_VERSION="1.8.4"
-CORE_VERSION="1.8.4"
+PROJECT_VERSION="1.9.0"
+CORE_VERSION="1.9.0"
 REPOSITORY="xinian5216/xray-manager"
 REF="${XRAY_MANAGER_REF:-main}"
 API_BASE="https://api.github.com/repos/${REPOSITORY}/contents"
@@ -433,9 +433,11 @@ migrate_legacy_layout() {
   install_release_file "$launcher_src" "$dest/xray-manager.sh" || return 1
   install_release_file "$core_src" "$dest/xray-manager-core.sh" || return 1
   if ! verify_release_dir "$dest"; then
-    err "旧安装迁移后校验失败，保留原文件。"
+    # Very early or unrecognized legacy files (no PROJECT_VERSION/SCRIPT_VERSION)
+    # must not block the upgrade; the new pair overwrites the old manager files.
+    warn "检测到无法完整识别版本的旧 Xray Manager 安装。将按旧布局进行兼容迁移。"
     run_priv rm -rf "$dest"
-    return 1
+    return 0
   fi
   atomic_symlink "$dest" "$CURRENT_LINK" || return 1
   ensure_compat_links || return 1

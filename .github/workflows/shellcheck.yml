@@ -15,6 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # tests/legacy-manager-upgrade.sh extracts real historical fixtures from
+          # pinned ancestor commits; the repository pack is under 0.5 MB.
+          fetch-depth: 0
       - name: Bash syntax
         run: |
           bash -n xray-manager.sh
@@ -37,6 +41,7 @@ jobs:
           bash -n tests/atomic-release.sh
           bash -n tests/xray-version-select.sh
           bash -n tests/xray-asset-integrity.sh
+          bash -n tests/legacy-manager-upgrade.sh
       - name: Verify project version
         run: |
           test "$(tr -d '[:space:]' < VERSION)" = "$(sed -n 's/^PROJECT_VERSION="\(.*\)"/\1/p' xray-manager.sh | head -n1)"
@@ -68,6 +73,7 @@ jobs:
           shellcheck -e SC2034 -S warning tests/atomic-release.sh
           shellcheck -S warning tests/xray-version-select.sh
           shellcheck -S warning tests/xray-asset-integrity.sh
+          shellcheck -S warning tests/legacy-manager-upgrade.sh
       - name: Offline import test
         run: bash tests/offline-install.sh
       - name: Bootstrap dependency test
@@ -86,6 +92,8 @@ jobs:
         run: bash tests/xray-version-select.sh
       - name: Xray asset integrity test
         run: bash tests/xray-asset-integrity.sh
+      - name: Legacy manager upgrade test
+        run: bash tests/legacy-manager-upgrade.sh
       - name: Inbound management regression test
         run: bash tests/inbound-management.sh
       - name: WireGuard management regression test

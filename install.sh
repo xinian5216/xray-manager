@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # GitHub bootstrap installer for xinian5216/xray-manager.
 # Anonymous access is the default; a token is optional (rate limit / private fork).
+# This is also the single migration entry for legacy Manager installs
+# (GitHub Private and retired Cloudflare/R2 channels): it never invokes the
+# old manager's own update commands.
 set -Eeuo pipefail
 IFS=$'\n\t'
 
@@ -10,8 +13,23 @@ API_BASE="https://api.github.com/repos/${REPOSITORY}/contents"
 INSTALL_PATH="${XRAY_MANAGER_INSTALL_PATH:-/usr/local/sbin/xraym}"
 CORE_PATH="${XRAY_MANAGER_CORE_PATH:-/usr/local/lib/xray-manager/xray-manager-core.sh}"
 STATE_DIR="${XRAY_MANAGER_STATE_DIR:-/etc/xray-manager}"
+LIB_DIR="${XRAY_MANAGER_LIB_DIR:-$(dirname "$CORE_PATH")}"
+RELEASES_DIR="${XRAY_MANAGER_RELEASES_DIR:-$LIB_DIR/releases}"
+CURRENT_LINK="${XRAY_MANAGER_CURRENT_LINK:-$LIB_DIR/current}"
+PREVIOUS_LINK="${XRAY_MANAGER_PREVIOUS_LINK:-$LIB_DIR/previous}"
+UPDATE_SOURCE_FILE="${STATE_DIR}/manager_update_source"
+CLOUDFLARE_URL_FILE="${STATE_DIR}/cloudflare_url"
 DOWNLOAD_PROXY="${XRAY_DOWNLOAD_PROXY:-}"
 RUN_AFTER_INSTALL=0
+
+LEGACY_TYPE="fresh-install"
+LEGACY_VERSION=""
+LEGACY_CORE_VERSION=""
+LEGACY_UPDATE_SOURCE=""
+LEGACY_DETECTED=0
+LEGACY_CLOUDFLARE_STATE=0
+LEGACY_STATE_CLEANED=0
+LEGACY_BACKUP_DIR=""
 
 C_RESET='\033[0m'
 C_RED='\033[31m'
@@ -162,6 +180,242 @@ patch_core_for_launcher() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Legacy installation detection (single migration entry: this installer).
+# ---------------------------------------------------------------------------
+read_marker_version() {
+  local file="$1" marker="$2" version
+  [[ -f "$file" ]] || return 1
+  version="$(sed -n "s/^${marker}=\"\([^\"]*\)\".*/\1/p" "$file" | head -n1)"
+  [[ "$version" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]] || return 1
+  printf '%s' "$version"
+}
+
+can_write_path() {
+  local dir="$1"
+  [[ "${EUID:-$(id -u)}" -eq 0 ]] && return 0
+  [[ -e "$dir" ]] || dir="$(dirname "$dir")"
+  while [[ ! -e "$dir" && "$dir" != "/" && "$dir" != "." ]]; do
+    dir="$(dirname "$dir")"
+  done
+  [[ -w "$dir" ]]
+}
+
+privileged() {
+  local target="$1"
+  shift
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]] || can_write_path "$target"; then
+    "$@"
+  else
+    command -v sudo >/dev/null 2>&1 || {
+      err "需要 root 权限写入 $target，但系统没有 sudo。"
+      return 1
+    }
+    sudo "$@"
+  fi
+}
+
+detect_legacy_installation() {
+  local fixed_launcher="" fixed_core="" atomic_dir="" atomic_version=""
+
+  if [[ -f "$INSTALL_PATH" && ! -L "$INSTALL_PATH" ]]; then
+    fixed_launcher="$INSTALL_PATH"
+  fi
+  if [[ -f "$CORE_PATH" && ! -L "$CORE_PATH" ]]; then
+    fixed_core="$CORE_PATH"
+  fi
+
+  if [[ -L "$CURRENT_LINK" ]]; then
+    atomic_dir="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
+    if [[ -n "$atomic_dir" && -d "$atomic_dir" \
+       && -f "$atomic_dir/xray-manager.sh" && -f "$atomic_dir/xray-manager-core.sh" ]]; then
+      atomic_version="$(read_marker_version "$atomic_dir/xray-manager.sh" PROJECT_VERSION || true)"
+    else
+      atomic_dir=""
+    fi
+  fi
+
+  if [[ -r "$STATE_DIR/manager_update_source" ]]; then
+    LEGACY_UPDATE_SOURCE="$(tr -d '[:space:]' <"$STATE_DIR/manager_update_source" 2>/dev/null || true)"
+  fi
+  if [[ -r "$CLOUDFLARE_URL_FILE" ]]; then
+    LEGACY_CLOUDFLARE_STATE=1
+    [[ -n "$LEGACY_UPDATE_SOURCE" ]] || LEGACY_UPDATE_SOURCE="cloudflare"
+  fi
+
+  if [[ -n "$atomic_dir" ]]; then
+    LEGACY_VERSION="$atomic_version"
+    LEGACY_CORE_VERSION="$(read_marker_version "$atomic_dir/xray-manager-core.sh" SCRIPT_VERSION || true)"
+    case "$LEGACY_UPDATE_SOURCE" in
+      cloudflare) LEGACY_TYPE="legacy-cloudflare-r2" ;;
+      github)     LEGACY_TYPE="legacy-github" ;;
+      *)          LEGACY_TYPE="atomic-release-layout" ;;
+    esac
+  elif [[ -n "$fixed_launcher" || -n "$fixed_core" ]]; then
+    LEGACY_VERSION="$(read_marker_version "$fixed_launcher" PROJECT_VERSION || true)"
+    [[ -n "$LEGACY_VERSION" ]] || LEGACY_VERSION="$(read_marker_version "$fixed_launcher" SCRIPT_VERSION || true)"
+    LEGACY_CORE_VERSION="$(read_marker_version "$fixed_core" SCRIPT_VERSION || true)"
+    if [[ -z "$LEGACY_VERSION" && -z "$LEGACY_CORE_VERSION" ]]; then
+      LEGACY_TYPE="unknown-legacy"
+    else
+      case "$LEGACY_UPDATE_SOURCE" in
+        cloudflare) LEGACY_TYPE="legacy-cloudflare-r2" ;;
+        github)     LEGACY_TYPE="legacy-github" ;;
+        *)          LEGACY_TYPE="legacy-fixed-layout" ;;
+      esac
+    fi
+  elif [[ -d "$RELEASES_DIR" || -L "$CURRENT_LINK" \
+       || -f "$STATE_DIR/manager_update_source" || -f "$CLOUDFLARE_URL_FILE" ]]; then
+    LEGACY_TYPE="unknown-legacy"
+  fi
+
+  if [[ "$LEGACY_TYPE" != "fresh-install" ]]; then
+    LEGACY_DETECTED=1
+  fi
+}
+
+report_legacy_installation() {
+  local version="未知"
+  [[ -n "$LEGACY_VERSION" ]] && version="$LEGACY_VERSION"
+  case "$LEGACY_TYPE" in
+    legacy-cloudflare-r2)
+      warn "检测到旧版 Cloudflare/R2 安装。"
+      echo "旧版本：v$version"
+      echo "旧更新源：Cloudflare/R2（已退役）"
+      echo "迁移目标：GitHub Public"
+      ;;
+    legacy-github)
+      warn "检测到旧版 GitHub Private 安装。"
+      echo "旧版本：v$version"
+      echo "迁移目标：GitHub Public"
+      echo "以后默认无需 PAT。"
+      ;;
+    legacy-fixed-layout)
+      warn "检测到旧版固定路径安装。"
+      echo "旧版本：v$version"
+      echo "将迁移到 releases/<version> + current/previous 原子布局。"
+      ;;
+    unknown-legacy)
+      warn "检测到无法完整识别版本的旧 Xray Manager 安装。"
+      echo "将按旧布局进行兼容迁移。"
+      ;;
+    atomic-release-layout)
+      info "检测到旧版原子发布布局安装（当前版本 v${version}）。"
+      ;;
+    current-install)
+      info "当前已是仓库版本 v$version，将执行重装。"
+      ;;
+    fresh-install)
+      info "未检测到旧版 Xray Manager，将执行全新安装。"
+      ;;
+  esac
+  echo "迁移方式：重新下载最新版 Launcher + Core 并事务安装；不会调用旧版 self-update。"
+  echo "Xray 配置、证书、WireGuard 与备份保持不变。"
+}
+
+backup_legacy_manager() {
+  local stamp dir info_file target
+  (( LEGACY_DETECTED )) || return 0
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  dir="$LIB_DIR/migration-backup/$stamp"
+  info_file="$dir/migration.info"
+  privileged "$LIB_DIR" install -d -m 700 "$dir" || {
+    warn "迁移前备份目录创建失败：$dir（继续安装，但旧文件不做额外备份）"
+    return 0
+  }
+  LEGACY_BACKUP_DIR="$dir"
+  if [[ -f "$INSTALL_PATH" && ! -L "$INSTALL_PATH" ]]; then
+    privileged "$dir" install -m 600 "$INSTALL_PATH" "$dir/xraym" 2>/dev/null || true
+  fi
+  if [[ -f "$CORE_PATH" && ! -L "$CORE_PATH" ]]; then
+    privileged "$dir" install -m 600 "$CORE_PATH" "$dir/xray-manager-core.sh" 2>/dev/null || true
+  fi
+  {
+    echo "type=$LEGACY_TYPE"
+    echo "old_version=${LEGACY_VERSION:-unknown}"
+    echo "old_core_version=${LEGACY_CORE_VERSION:-unknown}"
+    echo "update_source=${LEGACY_UPDATE_SOURCE:-none}"
+    echo "current=$(readlink -f "$CURRENT_LINK" 2>/dev/null || printf none)"
+    echo "previous=$(readlink -f "$PREVIOUS_LINK" 2>/dev/null || printf none)"
+    if [[ -r "$UPDATE_SOURCE_FILE" ]]; then
+      echo "manager_update_source=$(tr -d '[:space:]' <"$UPDATE_SOURCE_FILE")"
+    fi
+    if [[ -r "$CLOUDFLARE_URL_FILE" ]]; then
+      echo "cloudflare_url=$(head -n 1 "$CLOUDFLARE_URL_FILE" 2>/dev/null || true)"
+    fi
+  } >"$info_file"
+  info "旧 Manager 已备份到：$dir"
+}
+
+verify_new_xraym() {
+  local version
+  [[ -x "$INSTALL_PATH" ]] || {
+    err "新 Launcher 未就绪：$INSTALL_PATH"
+    return 1
+  }
+  "$INSTALL_PATH" --version >/dev/null 2>&1 || {
+    err "新 Launcher 无法执行：$INSTALL_PATH"
+    return 1
+  }
+  version="$(read_marker_version "$INSTALL_PATH" PROJECT_VERSION || true)"
+  [[ "$version" == "$VERSION" ]] || {
+    err "安装后版本校验失败：$version != $VERSION"
+    return 1
+  }
+}
+
+cleanup_retired_state_files() {
+  if [[ ! -f "$UPDATE_SOURCE_FILE" && ! -f "$CLOUDFLARE_URL_FILE" ]]; then
+    return 0
+  fi
+  if privileged "$STATE_DIR" rm -f "$UPDATE_SOURCE_FILE" "$CLOUDFLARE_URL_FILE" 2>/dev/null; then
+    LEGACY_STATE_CLEANED=1
+  else
+    warn "旧更新源状态文件清理失败（不影响新版本使用）：$STATE_DIR"
+  fi
+}
+
+print_migration_summary() {
+  local layout
+  (( LEGACY_DETECTED )) || return 0
+  case "$LEGACY_TYPE" in
+    legacy-cloudflare-r2) layout="Cloudflare/R2（已退役）" ;;
+    legacy-github)        layout="GitHub Private" ;;
+    legacy-fixed-layout)  layout="旧固定路径布局" ;;
+    unknown-legacy)       layout="未知旧布局" ;;
+    atomic-release-layout) layout="原子发布旧版本" ;;
+    current-install)      layout="当前版本重装" ;;
+    *)                    layout="$LEGACY_TYPE" ;;
+  esac
+  echo
+  echo "================ Xray Manager 迁移完成 ================"
+  echo "旧版本：${LEGACY_VERSION:-未知}"
+  echo "旧布局：$layout"
+  echo "新版本：$VERSION"
+  echo "在线更新源：GitHub Public"
+  echo "Manager 原子布局：已启用"
+  if (( LEGACY_CLOUDFLARE_STATE )); then
+    if (( LEGACY_STATE_CLEANED )); then
+      echo "旧 Cloudflare 状态：已清理"
+    else
+      echo "旧 Cloudflare 状态：清理失败（可手动删除 $STATE_DIR 下的 manager_update_source 与 cloudflare_url）"
+    fi
+  else
+    echo "旧 Cloudflare 状态：无需清理"
+  fi
+  echo
+  echo "Xray 配置：保持不变"
+  echo "证书：保持不变"
+  echo "WireGuard：保持不变"
+  echo "备份：保持不变"
+  if [[ -n "$LEGACY_BACKUP_DIR" ]]; then
+    echo "迁移前备份：$LEGACY_BACKUP_DIR"
+  fi
+  echo
+  echo "以后更新："
+  echo "sudo xraym --self-update"
+}
+
 install_release_pair() {
   export XRAY_MANAGER_INSTALL_PATH="$INSTALL_PATH"
   export XRAY_MANAGER_CORE_PATH="$CORE_PATH"
@@ -197,6 +451,8 @@ else
   info "未提供 GitHub Token，将匿名读取公开仓库（可选 Token 只用于提速）。"
 fi
 
+detect_legacy_installation
+
 TMP="$(mktemp -d)"
 cleanup() {
   rm -rf "$TMP"
@@ -208,6 +464,13 @@ info "读取仓库 VERSION..."
 curl_private "VERSION" "$TMP/VERSION" "$TOKEN"
 VERSION="$(tr -d '[:space:]' <"$TMP/VERSION")"
 [[ -n "$VERSION" ]] || { err "VERSION 为空。"; exit 1; }
+
+if [[ "$LEGACY_TYPE" == "atomic-release-layout" && "$LEGACY_VERSION" == "$VERSION" ]]; then
+  LEGACY_TYPE="current-install"
+  LEGACY_DETECTED=0
+fi
+
+report_legacy_installation
 
 info "下载 Launcher、Core 与 SHA256SUMS..."
 curl_private "SHA256SUMS" "$TMP/SHA256SUMS" "$TOKEN"
@@ -222,20 +485,22 @@ patch_core_for_launcher "$TMP/lib/xray-manager-core.sh"
 bash -n "$TMP/xray-manager.sh"
 bash -n "$TMP/lib/xray-manager-core.sh"
 
+backup_legacy_manager
 info "安装 Xray Manager 运行依赖（含 jq、OpenSSL、iproute2）..."
 install_runtime_dependencies "$TMP/lib/xray-manager-core.sh"
 install_release_pair "$TMP/xray-manager.sh" "$TMP/lib/xray-manager-core.sh"
-# The Cloudflare/R2 update source was removed; drop the retired state files if
-# a previous install created them. Inlined because install_release_pair sources
-# the Launcher, which defines its own cleanup_legacy_update_state for /etc.
-rm -f "$STATE_DIR/manager_update_source" "$STATE_DIR/cloudflare_url" 2>/dev/null || true
+verify_new_xraym
+cleanup_retired_state_files
+print_migration_summary
 ok "Xray Manager 项目版本 $VERSION 安装完成。"
 echo "Launcher: $INSTALL_PATH"
 echo "Core    : $CORE_PATH"
 echo
+echo "当前仓库已公开，后续普通更新不需要 GitHub Token。"
+echo "Token 仅用于提高 API 限额或访问 Private fork，默认不会保存。"
+echo
 echo "运行：sudo xraym"
 echo "更新：sudo xraym --self-update"
-echo "Token 默认不会保存。"
 
 if (( RUN_AFTER_INSTALL )); then
   trap - EXIT INT TERM

@@ -2,7 +2,7 @@
 
 用于 Linux 环境下安装、配置、更新和管理 Xray-core 的交互式管理工具。
 
-> 当前项目版本：**v1.8.4** · Core：**v1.8.4**
+> 当前项目版本：**v1.9.0** · Core：**v1.9.0**
 
 Xray-core Linux installation, configuration, update and service management tool.
 
@@ -227,6 +227,26 @@ Launcher 自更新和 Core 中所有会修改系统状态的主菜单操作共�
 ```
 
 它会调用 Launcher 的同一套 GitHub 自更新逻辑；完成后可以立即重新载入新版菜单。
+
+## 从旧版本升级
+
+当前版本的正常更新入口：
+
+```bash
+sudo xraym --self-update
+```
+
+旧版本安装（GitHub Private 时代，或已退役的 Cloudflare/R2 分发渠道）统一改为重新运行最新版安装器：
+
+```bash
+curl -fsSLo /tmp/xray-manager-install.sh \
+  https://raw.githubusercontent.com/xinian5216/xray-manager/main/install.sh &&
+sudo bash /tmp/xray-manager-install.sh
+```
+
+这不是卸载重装。安装器启动时会自动识别旧 Xray Manager（旧版固定路径布局、`releases/<version>` + `current/previous` 原子布局、`manager_update_source` / `cloudflare_url` 旧状态），然后重新下载最新版 Launcher 与 Core 并事务安装。现有 Xray 配置、证书、WireGuard 资料与备份不会被删除或重新生成；安装失败时旧安装保持原样，新版本装好并确认可执行后才清理已退役的更新源状态。
+
+安装器不会调用旧版 Manager 自己的 `--self-update` / `--self-update-cloudflare` / `--self-update-github`（旧 Cloudflare 通道已退役，旧 GitHub Private 版本可能强制要求 PAT）。无论旧机器的历史来源是什么，迁移后在线更新都走 GitHub 公开仓库，默认匿名、无需 PAT。
 
 ### GitHub 来源下的 Xray Core 版本选择
 
