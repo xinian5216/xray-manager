@@ -11,9 +11,9 @@ First contact: read [AGENTS.md](../../AGENTS.md), then this file or `--ai`. Neve
 | docs/ai/INDEX.md | generated | generated | always |
 | docs/ai/core-symbols.tsv | generated | generated | grep function names |
 | lib/xray-manager-core.sh | 258444 | 7606 | **never whole** — slices only |
-| xray-manager.sh | 21311 | 709 | launcher/self-update only |
-| README.md | 28085 | 539 | user-doc edits only |
-| CHANGELOG.md | 21407 | 286 | release notes only |
+| xray-manager.sh | 21522 | 711 | launcher/self-update only |
+| README.md | 29304 | 559 | user-doc edits only |
+| CHANGELOG.md | 22638 | 288 | release notes only |
 | tests/smoke-configs.sh | 14943 | 421 | config-generation tests |
 
 Cap: about 500 lines of Core per turn. Prefer `bash scripts/maintainer-map.sh --ai "<task>"`.
@@ -22,7 +22,7 @@ Cap: about 500 lines of Core per turn. Prefer `bash scripts/maintainer-map.sh --
 
 | area | core slice | lines | tests | when |
 | --- | --- | ---: | --- | --- |
-| `launcher` | xray-manager.sh:33-709 | 677 | tests/bootstrap-install.sh,tests/manager-menu-update.sh,tests/version-lock.sh,tests/atomic-release.sh | launcher / 启动器 / 自更新 / self-update / 菜单更新 / 版本 / 降级 / downgrade |
+| `launcher` | xray-manager.sh:33-711 | 679 | tests/bootstrap-install.sh,tests/manager-menu-update.sh,tests/version-lock.sh,tests/atomic-release.sh | launcher / 启动器 / 自更新 / self-update / 菜单更新 / 版本 / 降级 / downgrade |
 | `install-migrate` | lib/xray-manager-core.sh:624-1543 | 920 | tests/bootstrap-install.sh,tests/offline-install.sh,tests/config-migration.sh,tests/smoke-configs.sh | 安装 / 依赖 / dependency / jq / 修复 / 迁移 / migration / systemd |
 | `network-ipv6` | lib/xray-manager-core.sh:186-623 | 438 | tests/offline-install.sh | 网络 / ipv4 / ipv6 / only-v6 / NAT64 / DNS64 / 下载代理 / proxy |
 | `inbound-transport` | lib/xray-manager-core.sh:1804-4997 | 3194 | tests/inbound-management.sh,tests/wireguard-management.sh,tests/smoke-configs.sh,tests/manager-menu-update.sh | 入站 / inbound / 详情 / detail / 编号 / index / 诊断 / diagnose |

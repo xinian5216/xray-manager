@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- `install.sh` 成为旧版 Xray Manager 的统一迁移入口：启动时先检测旧安装（`/usr/local/sbin/xraym`、兼容 Core、`current`、`releases/` 与 `manager_update_source` / `cloudflare_url` 旧状态），按 `legacy-fixed-layout` / `atomic-release-layout` / `legacy-github` / `legacy-cloudflare-r2` / `current-install` / `unknown-legacy` / `fresh-install` 分类展示旧版本与迁移目标；迁移只覆盖 Manager 本身，Xray 配置、证书、WireGuard 与备份保持不变，新版本安装成功且 `xraym` 确认可执行后才清理退役更新源状态，失败时旧安装完整保留。安装器不调用旧版 `--self-update` 系列命令。
+- 新增 `tests/legacy-manager-upgrade.sh`：以 pinned 历史提交提取 v1.2.3（GitHub Private / 固定布局）、v1.4.1 与 v1.6.0（Cloudflare 时代 / 固定布局）、v1.8.3（GitHub / 原子布局）、v1.8.4（Cloudflare+R2 / 原子布局）真实旧文件为 fixture，另覆盖当前版重装、无标记 unknown legacy（含“旧代码未被执行”金丝雀断言）与全新安装；并回归下载失败、SHA256 校验失败、`bash -n` 失败、写入失败、切换失败与自检失败时旧安装与 Xray 数据的完整回滚。
 - GitHub 来源下的“安装 / 修复 Xray”和“更新 Xray-core”支持版本选择：最新发布版（允许 Pre-release，默认）、最新稳定版、最近 15 个历史版本、手动输入 `vX.Y.Z`。版本选择按当前 CPU 架构过滤 Release ZIP 资产，并对 Stable / Pre-release 与发布日期做展示。
 - 新增 `xray_version_*` / `xray_github_*` / `xray_install_selected_version` 等单一职责函数；`run_systemd_installer` 支持向 XTLS 官方安装器追加参数，最终执行 `install --version vX.Y.Z`，配置下载代理时仍附带 `-p PROXY`。
 - Alpine/OpenRC 无法使用官方安装器的 `--version`，改为下载对应 Release 官方 ZIP，校验 GitHub API `digest` 与官方 `.dgst` 的 SHA256（两者并存时必须一致）后复用 `offline_import_xray`。

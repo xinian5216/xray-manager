@@ -29,27 +29,36 @@ xray-manager.sh	346	365	replace_with_symlink	launcher
 xray-manager.sh	366	375	ensure_compat_links	launcher
 xray-manager.sh	376	386	choose_release_dir	launcher
 xray-manager.sh	387	400	prune_old_releases	launcher
-xray-manager.sh	401	444	migrate_legacy_layout	launcher
-xray-manager.sh	445	454	restore_current_link	launcher
-xray-manager.sh	455	552	install_pair	launcher
-xray-manager.sh	553	586	rollback_manager	launcher
-xray-manager.sh	587	639	self_update_github	launcher
-xray-manager.sh	640	644	self_update	launcher
-xray-manager.sh	645	661	print_version	launcher
-xray-manager.sh	662	709	run_core	launcher
-install.sh	22	22	info	
-install.sh	23	23	ok	
-install.sh	24	24	warn	
-install.sh	25	26	err	
-install.sh	27	77	usage	
-install.sh	78	82	get_token	
-install.sh	83	125	curl_private	
-install.sh	126	136	sha256_file	
-install.sh	137	149	verify_payload	
-install.sh	150	164	patch_core_for_launcher	
-install.sh	165	173	install_release_pair	
-install.sh	174	200	install_runtime_dependencies	
-install.sh	201	249	cleanup	
+xray-manager.sh	401	446	migrate_legacy_layout	launcher
+xray-manager.sh	447	456	restore_current_link	launcher
+xray-manager.sh	457	554	install_pair	launcher
+xray-manager.sh	555	588	rollback_manager	launcher
+xray-manager.sh	589	641	self_update_github	launcher
+xray-manager.sh	642	646	self_update	launcher
+xray-manager.sh	647	663	print_version	launcher
+xray-manager.sh	664	711	run_core	launcher
+install.sh	40	40	info	
+install.sh	41	41	ok	
+install.sh	42	42	warn	
+install.sh	43	44	err	
+install.sh	45	95	usage	
+install.sh	96	100	get_token	
+install.sh	101	143	curl_private	
+install.sh	144	154	sha256_file	
+install.sh	155	167	verify_payload	
+install.sh	168	185	patch_core_for_launcher	
+install.sh	186	193	read_marker_version	
+install.sh	194	203	can_write_path	
+install.sh	204	217	privileged	
+install.sh	218	276	detect_legacy_installation	
+install.sh	277	315	report_legacy_installation	
+install.sh	316	349	backup_legacy_manager	
+install.sh	350	366	verify_new_xraym	
+install.sh	367	377	cleanup_retired_state_files	
+install.sh	378	418	print_migration_summary	
+install.sh	419	427	install_release_pair	
+install.sh	428	456	install_runtime_dependencies	
+install.sh	457	514	cleanup	
 offline-install.sh	17	17	err	
 offline-install.sh	18	19	ok	
 offline-install.sh	20	64	usage	
