@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.9.0 / Core v1.9.0 - 2026-09-19
 
 ### Added
 - `install.sh` 成为旧版 Xray Manager 的统一迁移入口：启动时先检测旧安装（`/usr/local/sbin/xraym`、兼容 Core、`current`、`releases/` 与 `manager_update_source` / `cloudflare_url` 旧状态），按 `legacy-fixed-layout` / `atomic-release-layout` / `legacy-github` / `legacy-cloudflare-r2` / `current-install` / `unknown-legacy` / `fresh-install` 分类展示旧版本与迁移目标；迁移只覆盖 Manager 本身，Xray 配置、证书、WireGuard 与备份保持不变，新版本安装成功且 `xraym` 确认可执行后才清理退役更新源状态，失败时旧安装完整保留。安装器不调用旧版 `--self-update` 系列命令。
@@ -30,6 +30,11 @@
 ### Docs
 - README / USAGE / MAINTAINER_GUIDE / SECURITY 说明 Latest Published 与 Latest Stable 的区别、GitHub 默认可能安装 Pre-release、降级确认与失败回滚行为，以及 `XRAY_VERSION` 只是 CI 的 Xray Core 测试基准版本。
 - AI / 维护者第一次接触改为分层索引：`AGENTS.md` 只做路由，`scripts/maintainer-map.sh --ai` 与生成的 `docs/ai/` 按函数行号切片，避免把 7600 行 Core 读进上下文。
+- README 新增“从旧版本升级”：当前版本用 `sudo xraym --self-update`；旧版（GitHub Private / Cloudflare/R2）统一改为重新运行最新版 `install.sh` 自动迁移，并说明不会卸载重装、不会丢失 Xray 配置。
+
+### Tests
+- 新增 `tests/anonymous-public-verify.sh` 与 `.github/workflows/anonymous-verify.yml`（workflow_dispatch）：在干净 GitHub-hosted Linux 环境做真实匿名端到端验证——匿名全新安装、匿名 `xraym --self-update`、四种 Xray 版本选择（最新发布版 / 最新稳定版 / 历史版本 / 手动版本，真实 GitHub Releases API）、GeoData 更新，以及 v1.8.4（Cloudflare/R2）与 v1.2.3（GitHub Private）真实旧版迁移；同时验证无 `~/.netrc`、无 gh 登录、无全局 git credential，匿名限额 `x-ratelimit-limit: 60`，以及迁移前后 Xray 数据 SHA256 完全一致。
+- CI 接入 `tests/legacy-manager-upgrade.sh` 与 `tests/anonymous-public-verify.sh` 的 `bash -n` / ShellCheck 校验；`actions/checkout` 提升为 `fetch-depth: 0` 以便从 pinned 历史提交离线提取真实旧版 fixture。
 
 ## v1.8.4 / Core v1.8.4 - 2026-08-26
 
