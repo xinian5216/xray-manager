@@ -189,10 +189,17 @@ case_four_version_modes() {
       manual)  target="$manual_tag" ;;
     esac
     [[ -n "$target" ]] || fail "$mode 模式目标版本为空"
-    xray_install_selected_version "$target" || fail "$mode 模式安装 $target 失败"
+    xray_install_selected_version "$target" || \
+      fail "$mode 模式安装 $target 失败（xray.service: $(systemctl is-active xray 2>&1 || true)）"
     local installed
     installed="$(xray_current_version)" || fail "安装后无法读取 Xray 版本"
     [[ "$installed" == "$target" ]] || fail "$mode 模式安装后版本不符：$installed != $target"
+    # Each mode triggers two systemd starts (the XTLS installer starts the
+    # service, then the Manager restarts it). systemd's default StartLimit is
+    # 5 starts / 10s, so back-to-back modes can exhaust it and produce a
+    # spurious "Job for xray.service failed." Wait for the service to settle
+    # before the next real installation.
+    sleep "${XRAY_VERIFY_MODE_SETTLE:-6}"
   done
 }
 
