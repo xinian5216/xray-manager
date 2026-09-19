@@ -72,7 +72,8 @@ build_base_fixtures() {
   cp "$ROOT_DIR/xray-manager.sh" "$dest/xray-manager.sh"
   cp "$ROOT_DIR/lib/xray-manager-core.sh" "$dest/lib/xray-manager-core.sh"
   cp "$ROOT_DIR/VERSION" "$dest/VERSION"
-  (cd "$dest" && sha256sum xray-manager.sh lib/xray-manager-core.sh >SHA256SUMS)
+  # Normalize the separator so verify_payload's awk lookup matches on MSYS too.
+  (cd "$dest" && sha256sum xray-manager.sh lib/xray-manager-core.sh | sed 's/^\([0-9a-f]*\) \*/\1  /' >SHA256SUMS)
 }
 
 BASE_FIXTURES="$TEST_ROOT/mock-base"
