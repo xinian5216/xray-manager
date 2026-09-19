@@ -8,49 +8,48 @@ xray-manager.sh	54	80	manager_version_action	launcher
 xray-manager.sh	81	104	approve_target_version	launcher
 xray-manager.sh	105	135	acquire_manager_lock	launcher
 xray-manager.sh	136	154	release_manager_lock	launcher
-xray-manager.sh	155	161	cleanup_legacy_update_state	launcher
-xray-manager.sh	162	172	get_token	launcher
-xray-manager.sh	173	193	curl_private	launcher
-xray-manager.sh	194	204	sha256_file	launcher
-xray-manager.sh	205	217	verify_payload	launcher
-xray-manager.sh	218	232	patch_core_for_launcher	launcher
-xray-manager.sh	233	241	manager_layout_paths	launcher
-xray-manager.sh	242	251	manager_can_write	launcher
-xray-manager.sh	252	258	manager_needs_sudo	launcher
-xray-manager.sh	259	270	run_priv	launcher
-xray-manager.sh	271	278	read_project_version	launcher
-xray-manager.sh	279	286	read_core_version	launcher
-xray-manager.sh	287	293	resolve_link	launcher
-xray-manager.sh	294	305	verify_release_dir	launcher
-xray-manager.sh	306	323	selfcheck_current_release	launcher
-xray-manager.sh	324	343	atomic_symlink	launcher
-xray-manager.sh	344	347	install_release_file	launcher
-xray-manager.sh	348	367	replace_with_symlink	launcher
-xray-manager.sh	368	377	ensure_compat_links	launcher
-xray-manager.sh	378	388	choose_release_dir	launcher
-xray-manager.sh	389	402	prune_old_releases	launcher
-xray-manager.sh	403	446	migrate_legacy_layout	launcher
-xray-manager.sh	447	456	restore_current_link	launcher
-xray-manager.sh	457	554	install_pair	launcher
-xray-manager.sh	555	588	rollback_manager	launcher
-xray-manager.sh	589	640	self_update_github	launcher
-xray-manager.sh	641	645	self_update	launcher
-xray-manager.sh	646	662	print_version	launcher
-xray-manager.sh	663	710	run_core	launcher
-install.sh	21	21	info	
-install.sh	22	22	ok	
-install.sh	23	23	warn	
-install.sh	24	25	err	
-install.sh	26	73	usage	
-install.sh	74	84	get_token	
-install.sh	85	119	curl_private	
-install.sh	120	130	sha256_file	
-install.sh	131	143	verify_payload	
-install.sh	144	158	patch_core_for_launcher	
-install.sh	159	167	install_release_pair	
-install.sh	168	186	install_runtime_dependencies	
-install.sh	187	199	cleanup_legacy_update_state	
-install.sh	200	245	cleanup	
+xray-manager.sh	155	163	cleanup_legacy_update_state	launcher
+xray-manager.sh	164	168	get_token	launcher
+xray-manager.sh	169	191	curl_private	launcher
+xray-manager.sh	192	202	sha256_file	launcher
+xray-manager.sh	203	215	verify_payload	launcher
+xray-manager.sh	216	230	patch_core_for_launcher	launcher
+xray-manager.sh	231	239	manager_layout_paths	launcher
+xray-manager.sh	240	249	manager_can_write	launcher
+xray-manager.sh	250	256	manager_needs_sudo	launcher
+xray-manager.sh	257	268	run_priv	launcher
+xray-manager.sh	269	276	read_project_version	launcher
+xray-manager.sh	277	284	read_core_version	launcher
+xray-manager.sh	285	291	resolve_link	launcher
+xray-manager.sh	292	303	verify_release_dir	launcher
+xray-manager.sh	304	321	selfcheck_current_release	launcher
+xray-manager.sh	322	341	atomic_symlink	launcher
+xray-manager.sh	342	345	install_release_file	launcher
+xray-manager.sh	346	365	replace_with_symlink	launcher
+xray-manager.sh	366	375	ensure_compat_links	launcher
+xray-manager.sh	376	386	choose_release_dir	launcher
+xray-manager.sh	387	400	prune_old_releases	launcher
+xray-manager.sh	401	444	migrate_legacy_layout	launcher
+xray-manager.sh	445	454	restore_current_link	launcher
+xray-manager.sh	455	552	install_pair	launcher
+xray-manager.sh	553	586	rollback_manager	launcher
+xray-manager.sh	587	639	self_update_github	launcher
+xray-manager.sh	640	644	self_update	launcher
+xray-manager.sh	645	661	print_version	launcher
+xray-manager.sh	662	709	run_core	launcher
+install.sh	22	22	info	
+install.sh	23	23	ok	
+install.sh	24	24	warn	
+install.sh	25	26	err	
+install.sh	27	77	usage	
+install.sh	78	82	get_token	
+install.sh	83	125	curl_private	
+install.sh	126	136	sha256_file	
+install.sh	137	149	verify_payload	
+install.sh	150	164	patch_core_for_launcher	
+install.sh	165	173	install_release_pair	
+install.sh	174	200	install_runtime_dependencies	
+install.sh	201	249	cleanup	
 offline-install.sh	17	17	err	
 offline-install.sh	18	19	ok	
 offline-install.sh	20	64	usage	

@@ -1,10 +1,14 @@
-# Xray Manager
+# xray-manager
 
-一个面向常用 Linux VPS 的交互式 Xray 安装与管理项目，兼顾 IPv4、双栈和 IPv6-only VPS。
+用于 Linux 环境下安装、配置、更新和管理 Xray-core 的交互式管理工具。
 
 > 当前项目版本：**v1.8.4** · Core：**v1.8.4**
 
-## 核心功能
+Xray-core Linux installation, configuration, update and service management tool.
+
+本项目是通用的服务器运维工具：它不提供、不运营也不分发代理服务或公共节点，不包含任何真实密钥、订阅或服务器信息；示例与测试数据均为文档专用地址。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。
+
+## 功能
 
 - Xray-core 安装 / 修复 / 更新
 - GeoIP / GeoSite 更新
@@ -26,36 +30,39 @@
 - UFW、BBR、日志、配置测试、备份恢复
 - 备份内置版本清单与唯一文件名；恢复前拒绝危险归档，服务异常时自动切回原配置
 - IPv6-only、NAT64 / DNS64、IPv6 可达下载代理
-- 单一在线来源：私有 GitHub 仓库安装与自更新，Xray Core 来自 XTLS/Xray-core Releases
+- 单一在线来源：GitHub 仓库安装与自更新（公开仓库默认匿名访问，PAT 可选）
 - `XRAY_DOWNLOAD_PROXY` 支持 HTTP / HTTPS / SOCKS5 / SOCKS5H 下载代理
 - 完全离线导入 Xray ZIP、GeoIP 与 GeoSite
 - 已有 Xray 配置安全迁移、双重确认和迁移前完整备份
 - 主菜单直接更新 Xray Manager Launcher 与 Core
 - Manager 自更新原子切换 current/previous，失败自动回滚，支持 `xraym --rollback`
 
-## 快速安装
+## 支持环境
 
-在线安装只有一个来源：私有 GitHub 仓库。
+- 常见 Linux VPS 发行版：Debian / Ubuntu / CentOS / RHEL / Fedora / Arch / openSUSE / Alpine
+- systemd 与 Alpine OpenRC
+- `x86_64/amd64` 与 `aarch64/arm64` 的版本选择；其他架构使用官方安装器默认版本
+- IPv4、双栈、IPv6-only（NAT64 / DNS64）
 
-创建只针对 `xray-manager`、仅授予 `Contents: Read-only` 的 Fine-grained PAT：
+## 安装
+
+公开仓库默认匿名安装，不需要任何 Token：
 
 ```bash
-read -rsp "GitHub Token: " GH_TOKEN; echo; export GH_TOKEN; \
-curl -fsSL \
-  -H "Authorization: Bearer $GH_TOKEN" \
-  -H "Accept: application/vnd.github.raw+json" \
-  -H "X-GitHub-Api-Version: 2022-11-28" \
-  "https://api.github.com/repos/xinian5216/xray-manager/contents/install.sh?ref=main" \
-  -o /tmp/xray-manager-install.sh && \
-bash /tmp/xray-manager-install.sh --run; \
-rc=$?; rm -f /tmp/xray-manager-install.sh; unset GH_TOKEN; (exit $rc)
+curl -fsSLo /tmp/xray-manager-install.sh \
+  https://raw.githubusercontent.com/xinian5216/xray-manager/main/install.sh &&
+sudo bash /tmp/xray-manager-install.sh --run
 ```
 
-仓库是 Private，直接访问 `raw.githubusercontent.com/.../install.sh` 或不带 Token 请求 API 会返回 `404`，这是 GitHub 隐藏私有仓库的正常行为。如果上面的命令也返回 `404`，请检查 PAT 是否确实选择了 `xray-manager`、仍在有效期内，并具有 `Contents: Read-only` 权限。
+安装脚本通过匿名 GitHub API 读取 `VERSION`、`SHA256SUMS`、`xray-manager.sh` 与 `lib/xray-manager-core.sh`，校验 SHA256 后事务安装。匿名 API 限制为每小时 60 次请求，一次安装约使用 4 次；遇到速率限制时可设置可选 Token（同时也是私有 fork 的读取方式）：
 
-这种方式的安装和后续 `xraym --self-update` 都需要能够访问 `api.github.com`，或者设置 `XRAY_DOWNLOAD_PROXY`。PAT 只在本次下载使用，不会持久化、不会写入日志、也不会拼进 URL。
+```bash
+export XRAY_MANAGER_GITHUB_TOKEN="<Fine-grained PAT，Contents: Read-only>"
+```
 
-安装后，主菜单 `1) 安装 / 修复 Xray`、`6) 更新 Xray-core` 和 `7) 更新 GeoData` 都直接从 XTLS 官方 GitHub Release 获取资源，并支持在菜单里选择 Xray Core 版本（见下文）。
+Token 只作为 `Authorization` 头发送给 `api.github.com`；不会写入磁盘、不会出现在日志、不会拼进 URL，也不会转发给第三方镜像。更多细节见 [docs/INSTALL.md](docs/INSTALL.md)。
+
+安装后，主菜单 `1) 安装 / 修复 Xray`、`6) 更新 Xray-core` 和 `7) 更新 GeoData` 都直接从 XTLS 官方 GitHub Release 获取资源，并支持在菜单里选择 Xray Core 版本。
 
 ## 纯 IPv6 VPS：其他备用方式
 
@@ -70,11 +77,11 @@ rc=$?; rm -f /tmp/xray-manager-install.sh; unset GH_TOKEN; (exit $rc)
 3. `geoip.dat`。
 4. `geosite.dat`。
 
-例如将资源放在 `/home/xinian/offline-bundle/`：
+例如将资源放在 `/home/user/offline-bundle/`：
 
 ```bash
 sudo bash offline-install.sh \
-  --bundle-dir /home/xinian/offline-bundle \
+  --bundle-dir /home/user/offline-bundle \
   --run
 ```
 
@@ -82,9 +89,9 @@ sudo bash offline-install.sh \
 
 ```bash
 sudo bash offline-install.sh \
-  --xray-zip /home/xinian/Xray-linux-64.zip \
-  --geoip /home/xinian/geoip.dat \
-  --geosite /home/xinian/geosite.dat \
+  --xray-zip /home/user/Xray-linux-64.zip \
+  --geoip /home/user/geoip.dat \
+  --geosite /home/user/geosite.dat \
   --run
 ```
 
@@ -115,7 +122,7 @@ DNS64 只负责合成 AAAA，NAT64 才负责把 IPv6 流量转换到 IPv4。服�
 
 WARP 可以提供 IPv4 出口，但会修改接口、路由和 DNS，远程操作存在 SSH 失联风险，因此不作为自动安装默认方案。
 
-## 安装方式二：手动下载和运行
+## 手动安装
 
 如果不想执行一键安装脚本，永久安装最少只需要下面两个文件：
 
@@ -126,15 +133,15 @@ WARP 可以提供 IPv4 出口，但会修改接口、路由和 DNS，远程操�
 | **SHA256SUMS** | 校验文件是否完整 | 推荐 |
 | **VERSION** | 查看仓库项目版本 | 可选 |
 | **XRAY_VERSION** | CI 使用的 Xray Core 测试基准版本 | 发布维护 |
-| **install.sh** | 私有仓库一键安装器 | 手动安装不需要 |
+| **install.sh** | GitHub 一键安装器 | 手动安装不需要 |
 | **offline-install.sh** | Xray + GeoData 完全离线安装器 | 纯离线首次安装必需 |
 
 ### 1. 下载文件
 
-仓库是 Private，推荐先登录 GitHub，然后在仓库页面选择 **Code → Download ZIP**，上传到 VPS 后解压；也可以在已经配置 GitHub SSH Key 的机器上执行：
+公开仓库可以直接克隆或在仓库页面选择 **Code → Download ZIP**：
 
 ~~~bash
-git clone git@github.com:xinian5216/xray-manager.git
+git clone https://github.com/xinian5216/xray-manager.git
 cd xray-manager
 ~~~
 
@@ -194,7 +201,7 @@ sudo bash lib/xray-manager-core.sh
 
 ## 更新
 
-`xraym --self-update` 只有一种行为：从私有 GitHub 仓库安全更新 Launcher + Core。
+`xraym --self-update` 只有一种行为：从 GitHub 仓库安全更新 Launcher + Core（匿名默认，PAT 可选）。
 
 ```bash
 sudo xraym --self-update
@@ -400,6 +407,20 @@ REALITY 会把未通过认证的连接转发到 `target` 以维持正常 TLS 站
 
 公网监听时，如果 UFW 已启用，会按所选协议放行 TCP、UDP 或两者。端口转发本身不提供身份认证或加密，目标端看到的通常是 VPS/所选出站的源地址，不适合代替需要保留客户端源 IP 的 DNAT。
 
+## 卸载
+
+本项目没有写入系统的卸载脚本，可以手动移除已安装的文件：
+
+```bash
+sudo xraym --version            # 确认当前安装位置
+sudo rm -f /usr/local/sbin/xraym
+sudo rm -rf /usr/local/lib/xray-manager
+```
+
+Xray-core 由用户安装，是否移除由用户决定：官方安装器系统上可执行 `sudo bash install-release.sh remove`，或手动删除 `/usr/local/bin/xray`、`/usr/local/etc/xray`、`/usr/local/share/xray` 与对应服务单元。
+
+配置、证书、WireGuard 客户端资料与备份位于 `/etc/xray-manager/` 与 `/usr/local/etc/xray/`；删除前请先备份。
+
 ## 维护与故障定位
 
 仓库提供面向维护者的可搜索导航。AI 第一次接触请用 `--ai` 或 [docs/ai/INDEX.md](docs/ai/INDEX.md)，只打开返回的行号切片，不要通读 Core：
@@ -415,8 +436,8 @@ bash scripts/maintainer-map.sh --ai "IPv6 下载"
 ## 架构
 
 ```text
-私有 GitHub 仓库（install.sh / 自更新）
-            ↓ HTTPS + Fine-grained PAT / XRAY_DOWNLOAD_PROXY
+GitHub 仓库（install.sh / 自更新）
+            ↓ HTTPS（匿名默认，PAT 可选）/ XRAY_DOWNLOAD_PROXY
 xray-manager.sh
             ↓ Launcher / GitHub Updater
 lib/xray-manager-core.sh
@@ -431,6 +452,9 @@ Xray-core / UFW / BBR / 配置文件
 ├── xray-manager.sh
 ├── install.sh
 ├── offline-install.sh
+├── LICENSE
+├── DISCLAIMER.md
+├── THIRD_PARTY_NOTICES.md
 ├── VERSION
 ├── XRAY_VERSION
 ├── SHA256SUMS
@@ -440,7 +464,7 @@ Xray-core / UFW / BBR / 配置文件
 │   ├── USAGE.md
 │   ├── MAINTAINER_GUIDE.md
 │   ├── IPV6_ONLY.md
-│   ├── PRIVATE_INSTALL.md
+│   ├── INSTALL.md
 │   └── ai/                      # generated AI first-contact index
 │       ├── INDEX.md
 │       └── core-symbols.tsv
@@ -464,14 +488,13 @@ Xray-core / UFW / BBR / 配置文件
 └── .gitignore
 ```
 
-## 安装与更新安全
+## 安全模型
 
-1. 先下载 `SHA256SUMS`、Launcher 与原始 Core，再校验 SHA256。
-2. 确认 Core 使用独立安装路径，不覆盖 `/usr/local/sbin/xraym`；安装器仍保留对旧版 Core 的兼容补丁。
-3. 对 Launcher 与补丁后的 Core 执行 `bash -n`。
-4. 全部通过后才写入 `releases/<version>/`，原子切换 `current`；失败时保留原 current。
-
-GitHub Token 默认不会写入配置文件；交互输入完成后仅用于本次私有仓库下载。
+- Manager：GitHub 公开仓库 + `SHA256SUMS` + 原子更新 + 版本校验 + `--rollback`；可选 Fine-grained PAT 仅用于提高 API 限额或私有 fork。
+- Xray Core：只接受 `github.com/XTLS/Xray-core/releases/download/<tag>/...`，校验 Release API `digest` 与官方 `.dgst` 的 SHA256。
+- GeoData：通过 XTLS 官方安装器或完全离线导入更新，失败不写入。
+- 不校验的下载、任意第三方二进制、HTTP 明文下载、`--insecure`、`curl | bash` 安装未验证二进制都不在支持范围内。
+- GitHub Token 不会写入配置文件；只在当次请求的 `Authorization` 头中使用，不打印、不拼 URL、不发给第三方镜像。
 
 ## IPv6-only
 
@@ -500,6 +523,17 @@ sha256sum -c SHA256SUMS
 
 `Validate` 工作流执行版本一致性、SHA256、Bash 语法、ShellCheck、菜单自更新、已有配置迁移、事务化备份恢复、原子发布、上游资产完整性、Xray 版本选择（解析、Stable/Pre-release 筛选、降级保护、安装参数与失败回滚）、离线导入和真实 Xray 配置 smoke test。
 
+## 使用说明
+
+- 安装与更新：[docs/INSTALL.md](docs/INSTALL.md)
+- 交互菜单与各项功能：[docs/USAGE.md](docs/USAGE.md)
+- IPv6-only 与 NAT64 / DNS64：[docs/IPV6_ONLY.md](docs/IPV6_ONLY.md)
+- 维护与故障定位：[docs/MAINTAINER_GUIDE.md](docs/MAINTAINER_GUIDE.md)
+
+## 第三方组件
+
+本仓库不包含第三方源代码；运行时从官方来源下载或调用 Xray-core（MPL-2.0）、Xray-install（GPL-3.0）、acme.sh（GPL-3.0）等组件。完整列表与说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
 ## License
 
-当前仓库未附加开源许可证，按私有自用项目维护。
+本项目自有代码以 [MIT License](LICENSE) 发布。

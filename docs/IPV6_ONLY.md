@@ -98,7 +98,7 @@ http://user:password@[2001:db8::10]:8080
 
 该代理用于所有 GitHub / XTLS / GeoData 在线请求：
 
-- GitHub 私有仓库安装与 `xraym --self-update`
+- GitHub 仓库安装与 `xraym --self-update`
 - Xray 安装 / 更新
 - GeoData 更新
 - XTLS 官方安装器下载

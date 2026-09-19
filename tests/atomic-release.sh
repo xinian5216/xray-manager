@@ -203,16 +203,16 @@ $(find "$INSTALL_ROOT/lib/releases" -type f -printf '%m %p\n')
 EOF
 
 # 10. GitHub self-update path shares install_pair and does not persist tokens.
-setup_env github
-MOCK_BIN="$INSTALL_ROOT/mock-bin"
-FIXTURES="$INSTALL_ROOT/fixtures"
-mkdir -p "$MOCK_BIN" "$FIXTURES/lib"
-install -m 755 "$PAIRS/9.9.9/xray-manager.sh" "$FIXTURES/xray-manager.sh"
-install -m 755 "$PAIRS/9.9.9/lib/xray-manager-core.sh" "$FIXTURES/lib/xray-manager-core.sh"
-install -m 644 "$PAIRS/9.9.9/SHA256SUMS" "$FIXTURES/SHA256SUMS"
-printf '9.9.9\n' >"$FIXTURES/VERSION"
+setup_github_mock() {
+  MOCK_BIN="$INSTALL_ROOT/mock-bin"
+  FIXTURES="$INSTALL_ROOT/fixtures"
+  mkdir -p "$MOCK_BIN" "$FIXTURES/lib"
+  install -m 755 "$PAIRS/9.9.9/xray-manager.sh" "$FIXTURES/xray-manager.sh"
+  install -m 755 "$PAIRS/9.9.9/lib/xray-manager-core.sh" "$FIXTURES/lib/xray-manager-core.sh"
+  install -m 644 "$PAIRS/9.9.9/SHA256SUMS" "$FIXTURES/SHA256SUMS"
+  printf '9.9.9\n' >"$FIXTURES/VERSION"
 
-cat >"$MOCK_BIN/curl" <<'SH'
+  cat >"$MOCK_BIN/curl" <<'SH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 url=""
@@ -236,8 +236,11 @@ case "$url" in
 esac
 cp "$XRAY_TEST_FIXTURES/$source_file" "$out"
 SH
-chmod 755 "$MOCK_BIN/curl"
+  chmod 755 "$MOCK_BIN/curl"
+}
 
+setup_env github
+setup_github_mock
 PATH="$MOCK_BIN:$PATH" \
 XRAY_TEST_FIXTURES="$FIXTURES" \
 XRAY_MANAGER_GITHUB_TOKEN="ghp_test_token_secret_xyz" \
@@ -252,5 +255,20 @@ bash "$ROOT_DIR/xray-manager.sh" --self-update >/dev/null
 if grep -Rqs 'ghp_test_token_secret_xyz' "$INSTALL_ROOT"; then
   fail "GitHub token was persisted on disk"
 fi
+
+# 10b. Public-repository default: anonymous self-update must work with no token.
+setup_env anon
+setup_github_mock
+env -u XRAY_MANAGER_GITHUB_TOKEN -u GH_TOKEN \
+  PATH="$MOCK_BIN:$PATH" \
+  XRAY_TEST_FIXTURES="$FIXTURES" \
+  XRAY_MANAGER_INSTALL_PATH="$INSTALL_ROOT/xraym" \
+  XRAY_MANAGER_CORE_PATH="$INSTALL_ROOT/lib/xray-manager-core.sh" \
+  XRAY_MANAGER_LOCK_DIR="$INSTALL_ROOT/manager.lock" \
+  bash "$ROOT_DIR/xray-manager.sh" --self-update >/dev/null
+
+[[ -L "$INSTALL_ROOT/xraym" ]] || fail "anonymous update did not create launcher symlink"
+[[ "$(read_project_version "$(readlink -f "$INSTALL_ROOT/xraym")")" == "9.9.9" ]] \
+  || fail "anonymous update did not install 9.9.9"
 
 echo "Atomic Manager release tests passed."

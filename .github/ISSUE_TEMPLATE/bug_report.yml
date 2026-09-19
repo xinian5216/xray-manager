@@ -1,0 +1,78 @@
+name: Bug report
+description: 报告安装、更新、配置或服务管理问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **请不要在 Issue 中提交任何 Secret 或真实凭据。**
+        包括但不限于：GitHub Token/PAT、服务器密码、SSH 私钥、UUID、
+        REALITY PrivateKey、Shadowsocks/Trojan/Hysteria2 密码、SOCKS 账号、
+        完整订阅或分享链接、真实服务器 IP/域名。需要粘贴配置或日志时，请先脱敏。
+  - type: input
+    id: version
+    attributes:
+      label: 项目版本
+      description: 运行 `xraym --version` 的输出
+      placeholder: "1.8.4（Launcher/Core）"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 系统与架构
+      description: 发行版、`uname -m`、init 系统（systemd/OpenRC）
+      placeholder: "Debian 12 / x86_64 / systemd"
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: 网络环境
+      options:
+        - IPv4 / 双栈直连
+        - IPv6-only + NAT64/DNS64
+        - 使用 XRAY_DOWNLOAD_PROXY
+        - 完全离线安装
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 触发的菜单路径或命令，尽量给出可重复的最小步骤
+      placeholder: |
+        1. 主菜单 6) 更新 Xray-core
+        2. 选择 2) 最新稳定版
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为与错误文本
+      description: 请粘贴原始错误文本（已脱敏），不要只发截图
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志（已脱敏）
+      description: 例如 `systemctl status xray --no-pager`、`systemctl cat xray` 或 Xray error.log；提交前请删除所有密钥、UUID、密码、Token、真实 IP/域名
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已确认内容不包含任何 Token、密码、私钥、UUID 或真实节点信息
+          required: true

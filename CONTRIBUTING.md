@@ -77,3 +77,5 @@ shellcheck xray-manager.sh install.sh offline-install.sh \
 GitHub Actions 会检查版本一致性和 `SHA256SUMS`。
 
 `Validate` 工作流在工作流内下载根目录 `XRAY_VERSION` 指定的 Xray 版本，并运行真实配置 smoke test。更新该基线时只修改根目录 `XRAY_VERSION`。
+
+发布的 GitHub Release 只应包含源码、经过 CI 验证的脚本、`SHA256SUMS` 与 `CHANGELOG.md`；不要发布节点配置、订阅、真实密钥、证书私钥或任何用户数据。提交前不要粘贴 Token、密码、私钥、UUID 或真实服务器信息。

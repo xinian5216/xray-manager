@@ -38,6 +38,7 @@ Keep Core as a single distributable file unless the same change also updates all
 - Never default to changing the host default route or publicly exposing unauthenticated SOCKS/HTTP listeners.
 - Do not treat DNS64 as NAT64 and do not automatically enable WARP on IPv6-only hosts.
 - Never persist or print the GitHub PAT; keep it out of the repository, logs, URLs, and any third-party mirror.
+- Public installs and self-updates must work anonymously; never make a token a prerequisite, and only send it to `api.github.com`.
 - `XRAY_VERSION` is only the CI Xray Core test baseline; it must not restrict the version a GitHub user selects.
 - WireGuard client private keys stay in root-only `${STATE_DIR}/wireguard/<tag>/` and mode `600` backups; never print the server private key or invent a client private key for a public-key-only peer.
 

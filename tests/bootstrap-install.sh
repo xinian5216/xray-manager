@@ -79,6 +79,19 @@ grep -Eq '^install -y .*jq .*openssl .*unzip .*iproute2' "$XRAY_TEST_APT_LOG"
 [[ ! -e "$INSTALL_ROOT/state/cloudflare_url" ]] ||
   { echo "Retired cloudflare_url was not cleaned up." >&2; exit 1; }
 
+# Public-repository default: a fully anonymous install (no token env at all)
+# must succeed against the same unauthenticated GitHub API endpoints.
+ANON_ROOT="$TEST_ROOT/anon-install"
+env -u XRAY_MANAGER_GITHUB_TOKEN -u GH_TOKEN \
+  PATH="$MOCK_BIN:$PATH" \
+  XRAY_MANAGER_STATE_DIR="$ANON_ROOT/state" \
+  XRAY_MANAGER_INSTALL_PATH="$ANON_ROOT/xraym" \
+  XRAY_MANAGER_CORE_PATH="$ANON_ROOT/lib/xray-manager-core.sh" \
+    bash "$ROOT_DIR/install.sh" >"$TEST_ROOT/anon.log" 2>&1
+cmp "$ROOT_DIR/xray-manager.sh" "$ANON_ROOT/xraym"
+cmp "$ROOT_DIR/lib/xray-manager-core.sh" "$ANON_ROOT/lib/xray-manager-core.sh"
+grep -Fq '匿名读取公开仓库' "$TEST_ROOT/anon.log"
+
 set +e
 failure_output="$(
   PATH="$MOCK_BIN:$PATH" \
@@ -93,6 +106,6 @@ set -e
 
 [[ "$failure_rc" -eq 22 ]]
 grep -Fq 'HTTP 404' <<<"$failure_output"
-grep -Fq '仓库是 Private' <<<"$failure_output"
+grep -Fq '私有 fork' <<<"$failure_output"
 
 echo "Bootstrap dependency and GitHub error tests passed."

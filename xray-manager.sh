@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Xray Manager private launcher / updater
+# Xray Manager launcher / updater (GitHub, anonymous by default).
 set -Eeuo pipefail
 IFS=$'\n\t'
 
@@ -36,15 +36,15 @@ Xray Manager Launcher ${PROJECT_VERSION}
 
 Usage:
   xraym                     启动 Xray Manager 核心菜单
-  xraym --self-update       从私有 GitHub 仓库更新 Launcher + Core
+  xraym --self-update       从 GitHub 仓库更新 Launcher + Core
   xraym --self-update [--allow-downgrade]
   xraym --rollback          切换到已校验的本地上一版本
   xraym --version           查看项目与核心版本
   xraym --help              查看帮助
 
 Environment:
-  XRAY_MANAGER_GITHUB_TOKEN 私有仓库 Fine-grained PAT
-  GH_TOKEN                  兼容 GitHub Token 环境变量
+  XRAY_MANAGER_GITHUB_TOKEN 可选：Fine-grained PAT（私有 fork / 提升 API 限额）
+  GH_TOKEN                  可选：GitHub Token 环境变量
   XRAY_DOWNLOAD_PROXY       HTTP/SOCKS5 下载代理
   XRAY_MANAGER_REF          Git 分支/标签，默认 main
   XRAY_MANAGER_LOCK_DIR     全局操作锁目录，默认 /run/xray-manager.lock
@@ -159,14 +159,10 @@ cleanup_legacy_update_state() {
         /etc/xray-manager/cloudflare_url 2>/dev/null || true
 }
 
+# Optional token. The repository is public by default, so anonymous access is
+# the normal path; a token only raises GitHub API rate limits or unlocks forks.
 get_token() {
   local token="${XRAY_MANAGER_GITHUB_TOKEN:-${GH_TOKEN:-}}"
-  if [[ -z "$token" && -r /dev/tty ]]; then
-    printf "GitHub Fine-grained PAT（xray-manager / Contents: Read）: " >/dev/tty
-    IFS= read -r -s token </dev/tty || true
-    printf "\n" >/dev/tty
-  fi
-  [[ -n "$token" ]] || return 1
   printf '%s' "$token"
 }
 
@@ -178,11 +174,13 @@ curl_private() {
     --connect-timeout 12
     --max-time 180
     -H "Accept: application/vnd.github.raw+json"
-    -H "Authorization: Bearer $token"
     -H "X-GitHub-Api-Version: 2022-11-28"
-    "${API_BASE}/${path}?ref=${REF}"
-    -o "$out"
   )
+  # Never send a token anywhere except the GitHub API itself.
+  if [[ -n "$token" ]]; then
+    args+=(-H "Authorization: Bearer $token")
+  fi
+  args+=("${API_BASE}/${path}?ref=${REF}" -o "$out")
 
   if [[ -n "$DOWNLOAD_PROXY" ]]; then
     curl -x "$DOWNLOAD_PROXY" "${args[@]}"
@@ -593,16 +591,17 @@ self_update_github() {
   }
 
   local token tmp latest
-  token="$(get_token)" || {
-    err "没有 GitHub Token。"
-    warn "Fine-grained PAT 只需要该仓库 Contents: Read。"
-    return 1
-  }
+  token="$(get_token)"
+  if [[ -n "$token" ]]; then
+    info "使用可选的 GitHub Token（仅用于提高 API 速率限制）。"
+  else
+    info "未提供 GitHub Token，将匿名读取公开仓库。"
+  fi
 
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
 
-  info "读取 Private Repository 版本..."
+  info "读取仓库版本..."
   curl_private "VERSION" "$tmp/VERSION" "$token"
   latest="$(tr -d '[:space:]' <"$tmp/VERSION")"
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Private bootstrap installer for xinian5216/xray-manager
+# GitHub bootstrap installer for xinian5216/xray-manager.
+# Anonymous access is the default; a token is optional (rate limit / private fork).
 set -Eeuo pipefail
 IFS=$'\n\t'
 
@@ -36,9 +37,10 @@ Options:
   -h, --help            显示帮助
 
 Authentication:
-  优先读取 XRAY_MANAGER_GITHUB_TOKEN，其次读取 GH_TOKEN。
-  两者都不存在时，会从 /dev/tty 安全提示输入。
-  Token 不会被本脚本持久保存。
+  公开仓库默认匿名读取，无需任何 Token。
+  XRAY_MANAGER_GITHUB_TOKEN 或 GH_TOKEN 是可选的增强：
+  适用于私有 fork，或需要更高 GitHub API 速率限制时。
+  Token 只用于本次请求的 Authorization 头，不会持久保存。
 EOF
 }
 
@@ -71,14 +73,10 @@ command -v curl >/dev/null 2>&1 || {
   exit 1
 }
 
+# Optional token. The repository is public by default, so anonymous access is
+# the normal path; a token only raises GitHub API rate limits or unlocks forks.
 get_token() {
   local token="${XRAY_MANAGER_GITHUB_TOKEN:-${GH_TOKEN:-}}"
-  if [[ -z "$token" && -r /dev/tty ]]; then
-    printf "GitHub Fine-grained PAT（xray-manager / Contents: Read）: " >/dev/tty
-    IFS= read -r -s token </dev/tty || true
-    printf "\n" >/dev/tty
-  fi
-  [[ -n "$token" ]] || return 1
   printf '%s' "$token"
 }
 
@@ -87,12 +85,14 @@ curl_private() {
   local args=(
     -fsSL --retry 4 --connect-timeout 12 --max-time 180
     -H "Accept: application/vnd.github.raw+json"
-    -H "Authorization: Bearer $token"
     -H "X-GitHub-Api-Version: 2022-11-28"
-    "${API_BASE}/${path}?ref=${REF}"
-    -o "$out"
-    -w "%{http_code}"
   )
+  # Never send a token anywhere except the GitHub API itself.
+  if [[ -n "$token" ]]; then
+    args+=(-H "Authorization: Bearer $token")
+  fi
+  args+=("${API_BASE}/${path}?ref=${REF}" -o "$out" -w "%{http_code}")
+
   if [[ -n "$DOWNLOAD_PROXY" ]]; then
     if http_code="$(curl -x "$DOWNLOAD_PROXY" "${args[@]}")"; then
       rc=0
@@ -109,10 +109,16 @@ curl_private() {
 
   if (( rc != 0 )); then
     err "GitHub API 下载失败：$path（HTTP ${http_code:-未知}）"
-    if [[ "$http_code" == "404" ]]; then
-      warn "仓库是 Private；404 通常表示 Token 无权读取该仓库、Token 已失效，或 ref 不存在。"
-      warn "请确认 Fine-grained PAT 已选择 xray-manager，并授予 Contents: Read-only。"
-    fi
+    case "$http_code" in
+      404)
+        warn "仓库或 ref 不存在，或当前为无法读取的私有 fork。"
+        warn "公开仓库请确认 ref 名称；私有 fork 请提供 Contents: Read-only 的 Fine-grained PAT。"
+        ;;
+      403|429)
+        warn "可能是匿名 GitHub API 速率限制（每小时 60 次）。"
+        warn "可设置 XRAY_MANAGER_GITHUB_TOKEN 或 GH_TOKEN 提升限额后重试。"
+        ;;
+    esac
     return "$rc"
   fi
 }
@@ -184,11 +190,12 @@ install_runtime_dependencies() {
   fi
 }
 
-TOKEN="$(get_token)" || {
-  err "没有 GitHub Token，无法读取 Private Repository。"
-  warn "Fine-grained PAT 只需给 xray-manager 仓库 Contents: Read。"
-  exit 1
-}
+TOKEN="$(get_token)"
+if [[ -n "$TOKEN" ]]; then
+  info "使用可选的 GitHub Token（仅用于提高 API 速率限制）。"
+else
+  info "未提供 GitHub Token，将匿名读取公开仓库（可选 Token 只用于提速）。"
+fi
 
 TMP="$(mktemp -d)"
 cleanup() {

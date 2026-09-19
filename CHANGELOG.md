@@ -7,11 +7,17 @@
 - 新增 `xray_version_*` / `xray_github_*` / `xray_install_selected_version` 等单一职责函数；`run_systemd_installer` 支持向 XTLS 官方安装器追加参数，最终执行 `install --version vX.Y.Z`，配置下载代理时仍附带 `-p PROXY`。
 - Alpine/OpenRC 无法使用官方安装器的 `--version`，改为下载对应 Release 官方 ZIP，校验 GitHub API `digest` 与官方 `.dgst` 的 SHA256（两者并存时必须一致）后复用 `offline_import_xray`。
 - 新增 `tests/xray-version-select.sh`，覆盖版本标准化与数字比较、Stable/Pre-release/Draft/缺资产筛选、历史版本菜单、手动输入、降级默认拒绝、API digest 校验、安装参数转发、配置/服务失败自动回滚、Alpine 校验失败拒绝与不支持架构的显式回退确认。
+- 新增公开项目基础文件：`LICENSE`（MIT）、`DISCLAIMER.md`、`THIRD_PARTY_NOTICES.md`、`.github/ISSUE_TEMPLATE/`（含防泄露提醒）与 GitHub Actions 的 Dependabot 配置。
+- 安装与自更新改为“公开仓库匿名访问为默认、PAT 为可选增强”：不再要求普通用户配置 GitHub Token，匿名 API 遇到速率限制或私有 fork 时才需要 Fine-grained PAT；新增匿名安装/匿名自更新的回归测试覆盖。
 
 ### Changed
 - GitHub 更新 Core 前备份 `/usr/local/bin/xray` 到 `/etc/xray-manager/backups/xray-core-时间/`；安装后依次校验二进制可执行、完整配置测试和服务运行状态，任一步失败自动恢复旧 Core 并重启。
 - 修复 `update_xray()` 在配置测试或服务重启失败时仍打印“Xray 更新完成”的问题；现在只有全部步骤成功才显示成功摘要（旧版本 / 新版本 / 来源 / 类型 / 配置测试 / 服务状态）。
 - GitHub Releases API 不可用时提供“重试 / 手动输入版本 / 返回”，手动输入也必须通过 Release 元数据验证；所有 GitHub API 请求遵循 `XRAY_DOWNLOAD_PROXY`。
+- README 重新定位为“Linux 上的 Xray-core 安装、配置、更新与服务管理工具”，补充支持环境、安全模型、卸载、第三方组件与使用说明章节；示例路径统一改为文档专用地址。
+- `docs/PRIVATE_INSTALL.md` 重命名为 `docs/INSTALL.md`，改写为公开仓库安装说明。
+- `SECURITY.md` 改写为公开项目的安全政策：支持版本、Private Vulnerability Reporting、Issue 禁止提交的敏感内容、依赖与下载完整性、Token 与代理安全边界。
+- `install.sh` 与 Launcher 不再要求 PAT；Token 仅作为可选 `Authorization` 头，403/429 时才提示可设置 Token 提升匿名限额。
 
 ### Removed
 - 移除 Cloudflare Worker + 私有 R2 离线分发体系（`cloudflare-install.sh`、`worker/`、`publish-r2.yml` 与相关测试）。

@@ -44,7 +44,7 @@ grep -i shadowsocks docs/ai/core-symbols.tsv
 | --- | --- | --- |
 | `xraym` 启动、自更新、版本显示或回滚异常 | `xray-manager.sh` | `tests/atomic-release.sh`、`tests/manager-menu-update.sh` |
 | Manager 版本比较、降级保护或并发锁异常 | Launcher/Core 中 `*version*`、`*manager_lock*` | `tests/version-lock.sh` |
-| GitHub 私有仓库首次安装失败、依赖缺失 | `install.sh` | `tests/bootstrap-install.sh`、Bash/ShellCheck |
+| GitHub 仓库首次安装失败、依赖缺失 | `install.sh` | `tests/bootstrap-install.sh`、Bash/ShellCheck |
 | 完全离线安装、架构识别、校验失败 | `offline-install.sh` | `tests/offline-install.sh` |
 | 已有 Xray 被识别、迁移或服务接管异常 | `lib/xray-manager-core.sh` 中 `discover_*`、`migrate_*`、`configure_*_service` | `tests/config-migration.sh`、`tests/offline-install.sh` |
 | 备份创建、归档校验、恢复或失败回滚异常 | Core 中 `backup_now`、`validate_backup_archive`、`restore_backup*` | `tests/backup-restore.sh`、`tests/wireguard-management.sh` |
@@ -65,7 +65,7 @@ grep -i shadowsocks docs/ai/core-symbols.tsv
 
 ```text
 安装入口
-├── install.sh                 GitHub 私有仓库下载
+├── install.sh                 GitHub 仓库下载
 └── offline-install.sh         完全离线导入
 
 运行入口

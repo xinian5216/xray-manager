@@ -235,7 +235,7 @@ WireGuard 创建入站时可自动生成客户端密钥对和 `10.66.66.x/32` �
 sudo xraym --self-update
 ```
 
-`xraym --self-update` 只从私有 GitHub 仓库更新 Launcher + Core：读取 `VERSION`、校验 `SHA256SUMS`、执行 `bash -n`、原子切换 `current`。Token 只在本次使用，不会持久保存。
+`xraym --self-update` 只从 GitHub 仓库更新 Launcher + Core（默认匿名，PAT 可选）：读取 `VERSION`、校验 `SHA256SUMS`、执行 `bash -n`、原子切换 `current`。Token 只在本次使用，不会持久保存。
 
 更新器只接受并严格比较 `MAJOR.MINOR.PATCH` 三段式版本号。升级默认允许；相同版本会要求确认后重装；降级默认拒绝，确需回退时显式执行：
 
