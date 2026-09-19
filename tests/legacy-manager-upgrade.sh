@@ -305,12 +305,14 @@ assert_new_layout() {
     fail "Core 版本不是 $expect"
   [[ "$(readlink -f "$INSTALL_PATH")" == "$cur/xray-manager.sh" ]] || \
     fail "xraym 未指向 current"
-  XRAY_MANAGER_INSTALL_PATH="$INSTALL_PATH" \
+  local version_output
+  version_output="$(XRAY_MANAGER_INSTALL_PATH="$INSTALL_PATH" \
     XRAY_MANAGER_CORE_PATH="$CORE_PATH" \
     XRAY_MANAGER_LIB_DIR="$LIB_DIR" \
-    bash "$INSTALL_PATH" --version </dev/null 2>/dev/null | \
-    grep -Fq "Xray Manager project: $expect" ||
-    fail "xraym --version 未运行或输出不符"
+    bash "$INSTALL_PATH" --version </dev/null 2>&1)" || \
+    fail "xraym --version 运行失败：$version_output"
+  printf '%s\n' "$version_output" | grep -Fq "Xray Manager project: $expect" || \
+    fail "xraym --version 输出不符：$version_output"
 }
 
 assert_backup_preserved() {
@@ -356,14 +358,14 @@ case_fresh_install() {
   new_scenario fresh
   seed_xray_data
   state_fingerprint >"$before_state"
-  run_install "$TEST_ROOT/fresh.log" || \
-    fail "fresh install 失败：$(tail -5 "$TEST_ROOT/fresh.log")"
+  run_install "$CASE_LOG" || \
+    fail "fresh install 失败：$(tail -5 "$CASE_LOG")"
   assert_new_layout "$REPO_VERSION"
   snapshot_to "$after_state"
   cmp -s "$before_state" "$after_state" || fail "fresh install 修改了 Xray 数据"
-  grep -Fq '未检测到旧版 Xray Manager，将执行全新安装' "$TEST_ROOT/fresh.log" ||
+  grep -Fq '未检测到旧版 Xray Manager，将执行全新安装' "$CASE_LOG" ||
     fail "fresh install 未输出全新安装提示"
-  if grep -Fq '迁移完成' "$TEST_ROOT/fresh.log"; then
+  if grep -Fq '迁移完成' "$CASE_LOG"; then
     fail "fresh install 不应输出迁移汇总"
   fi
   [[ ! -e "$LIB_DIR/migration-backup" ]] || fail "fresh install 不应创建迁移备份"
@@ -377,8 +379,8 @@ case_legacy_123_github() {
   seed_github_state
   seed_xray_data
   state_fingerprint >"$before_state"
-  run_install "$TEST_ROOT/legacy123.log" || \
-    fail "v1.2.3 迁移失败：$(tail -5 "$TEST_ROOT/legacy123.log")"
+  run_install "$CASE_LOG" || \
+    fail "v1.2.3 迁移失败：$(tail -5 "$CASE_LOG")"
   assert_new_layout "$REPO_VERSION"
   assert_markers_gone
   snapshot_to "$after_state"
@@ -386,9 +388,9 @@ case_legacy_123_github() {
   [[ "$(read_project_version "$(previous_dir)/xray-manager.sh")" == "1.2.3" ]] || \
     fail "previous 未保留 v1.2.3"
   assert_backup_preserved "$FIXTURES/1.2.3/xray-manager.sh"
-  grep -Fq '检测到旧版 GitHub Private 安装' "$TEST_ROOT/legacy123.log" || fail "缺少 GitHub Private 提示"
-  grep -Fq '以后默认无需 PAT' "$TEST_ROOT/legacy123.log" || fail "缺少无需 PAT 提示"
-  assert_anonymous "$TEST_ROOT/legacy123.log"
+  grep -Fq '检测到旧版 GitHub Private 安装' "$CASE_LOG" || fail "缺少 GitHub Private 提示"
+  grep -Fq '以后默认无需 PAT' "$CASE_LOG" || fail "缺少无需 PAT 提示"
+  assert_anonymous "$CASE_LOG"
   assert_url_log_only_github
 }
 
@@ -399,15 +401,15 @@ case_legacy_141_cloudflare() {
   seed_cloudflare_state
   seed_xray_data
   state_fingerprint >"$before_state"
-  run_install "$TEST_ROOT/legacy141.log" || \
-    fail "v1.4.1 迁移失败：$(tail -5 "$TEST_ROOT/legacy141.log")"
+  run_install "$CASE_LOG" || \
+    fail "v1.4.1 迁移失败：$(tail -5 "$CASE_LOG")"
   assert_new_layout "$REPO_VERSION"
   assert_markers_gone
   snapshot_to "$after_state"
   cmp -s "$before_state" "$after_state" || fail "v1.4.1 迁移修改了 Xray 数据"
   assert_backup_preserved "$FIXTURES/1.4.1/xray-manager.sh"
-  grep -Fq '检测到旧版 Cloudflare/R2 安装' "$TEST_ROOT/legacy141.log" || fail "缺少 Cloudflare 提示"
-  grep -Fq '旧 Cloudflare 状态：已清理' "$TEST_ROOT/legacy141.log" || fail "缺少 Cloudflare 清理确认"
+  grep -Fq '检测到旧版 Cloudflare/R2 安装' "$CASE_LOG" || fail "缺少 Cloudflare 提示"
+  grep -Fq '旧 Cloudflare 状态：已清理' "$CASE_LOG" || fail "缺少 Cloudflare 清理确认"
   assert_url_log_only_github
   if grep -q 'worker.example.invalid' "$URL_LOG"; then
     fail "迁移访问了已退役 Worker"
@@ -420,11 +422,11 @@ case_legacy_160_cloudflare() {
   seed_fixed_layout 1.6.0
   seed_cloudflare_state
   seed_xray_data
-  run_install "$TEST_ROOT/legacy160.log" || \
-    fail "v1.6.0 迁移失败：$(tail -5 "$TEST_ROOT/legacy160.log")"
+  run_install "$CASE_LOG" || \
+    fail "v1.6.0 迁移失败：$(tail -5 "$CASE_LOG")"
   assert_new_layout "$REPO_VERSION"
   assert_markers_gone
-  grep -Fq '检测到旧版 Cloudflare/R2 安装' "$TEST_ROOT/legacy160.log" || fail "缺少 Cloudflare 提示"
+  grep -Fq '检测到旧版 Cloudflare/R2 安装' "$CASE_LOG" || fail "缺少 Cloudflare 提示"
   assert_url_log_only_github
 }
 
@@ -435,8 +437,8 @@ case_atomic_183_github() {
   seed_github_state
   seed_xray_data
   state_fingerprint >"$before_state"
-  run_install "$TEST_ROOT/atomic183.log" || \
-    fail "v1.8.3 升级失败：$(tail -5 "$TEST_ROOT/atomic183.log")"
+  run_install "$CASE_LOG" || \
+    fail "v1.8.3 升级失败：$(tail -5 "$CASE_LOG")"
   assert_new_layout "$REPO_VERSION"
   assert_markers_gone
   snapshot_to "$after_state"
@@ -452,24 +454,24 @@ case_atomic_184_cloudflare() {
   seed_atomic_layout 1.8.4
   seed_cloudflare_state
   seed_xray_data
-  run_install "$TEST_ROOT/atomic184.log" || \
-    fail "v1.8.4 迁移失败：$(tail -5 "$TEST_ROOT/atomic184.log")"
+  run_install "$CASE_LOG" || \
+    fail "v1.8.4 迁移失败：$(tail -5 "$CASE_LOG")"
   assert_new_layout "$REPO_VERSION"
   assert_markers_gone
-  grep -Fq 'Xray Manager 迁移完成' "$TEST_ROOT/atomic184.log" || fail "缺少迁移完成汇总"
-  grep -Fq '旧 Cloudflare 状态：已清理' "$TEST_ROOT/atomic184.log" || fail "缺少 Cloudflare 清理状态"
+  grep -Fq 'Xray Manager 迁移完成' "$CASE_LOG" || fail "缺少迁移完成汇总"
+  grep -Fq '旧 Cloudflare 状态：已清理' "$CASE_LOG" || fail "缺少 Cloudflare 清理状态"
   assert_url_log_only_github
 }
 
 case_current_reinstall() {
   new_scenario reinstall
-  run_install "$TEST_ROOT/reinstall1.log" || \
-    fail "首次安装失败：$(tail -5 "$TEST_ROOT/reinstall1.log")"
+  run_install "$CASE_LOG" || \
+    fail "首次安装失败：$(tail -5 "$CASE_LOG")"
   assert_new_layout "$REPO_VERSION"
-  run_install "$TEST_ROOT/reinstall2.log" || \
-    fail "同版本重装失败：$(tail -5 "$TEST_ROOT/reinstall2.log")"
+  run_install "$CASE_LOG" || \
+    fail "同版本重装失败：$(tail -5 "$CASE_LOG")"
   assert_new_layout "$REPO_VERSION"
-  grep -Fq '当前已是仓库版本' "$TEST_ROOT/reinstall2.log" || fail "缺少重装提示"
+  grep -Fq '当前已是仓库版本' "$CASE_LOG" || fail "缺少重装提示"
   [[ ! -e "$LIB_DIR/migration-backup" ]] || fail "同版本重装不应创建迁移备份"
   local_cur="$(readlink -f "$LIB_DIR/current")"
   local_prev="$(readlink -f "$LIB_DIR/previous")"
@@ -500,10 +502,10 @@ EOF
   chmod 755 "$INSTALL_PATH" "$CORE_PATH"
   seed_xray_data
   cp "$INSTALL_PATH" "$TEST_ROOT/unknown-seed-launcher"
-  run_install "$TEST_ROOT/unknown.log" || \
-    fail "unknown legacy 迁移失败：$(tail -5 "$TEST_ROOT/unknown.log")"
+  run_install "$CASE_LOG" || \
+    fail "unknown legacy 迁移失败：$(tail -5 "$CASE_LOG")"
   assert_new_layout "$REPO_VERSION"
-  grep -Fq '检测到无法完整识别版本的旧 Xray Manager 安装' "$TEST_ROOT/unknown.log" || \
+  grep -Fq '检测到无法完整识别版本的旧 Xray Manager 安装' "$CASE_LOG" || \
     fail "缺少 unknown legacy 提示"
   assert_no_legacy_execution "$EXEC_CANARY"
   assert_no_legacy_execution "$CORE_CANARY"
@@ -549,9 +551,9 @@ run_expect_failure() { # $1 log, $2 fixtures, $3 FAIL_STEP, $4 HTTP -> echoes rc
 
 case_fail_download() {
   failure_scenario faildownload
-  assert_failure_rollback "$(run_expect_failure "$TEST_ROOT/faildownload.log" "" "" 500)" \
-    "$TEST_ROOT/faildownload.log" no
-  grep -Fq 'GitHub API 下载失败' "$TEST_ROOT/faildownload.log" || fail "缺少下载失败提示"
+  assert_failure_rollback "$(run_expect_failure "$CASE_LOG" "" "" 500)" \
+    "$CASE_LOG" no
+  grep -Fq 'GitHub API 下载失败' "$CASE_LOG" || fail "缺少下载失败提示"
 }
 
 case_fail_sha() {
@@ -560,9 +562,9 @@ case_fail_sha() {
   build_base_fixtures "$BADSUM_FIXTURES"
   sed -i '1s/^[0-9a-f]\{64\}/0000000000000000000000000000000000000000000000000000000000000000/' \
     "$BADSUM_FIXTURES/SHA256SUMS"
-  assert_failure_rollback "$(run_expect_failure "$TEST_ROOT/failsha.log" "$BADSUM_FIXTURES")" \
-    "$TEST_ROOT/failsha.log" no
-  grep -Fq 'SHA256 校验失败' "$TEST_ROOT/failsha.log" || fail "缺少校验失败提示"
+  assert_failure_rollback "$(run_expect_failure "$CASE_LOG" "$BADSUM_FIXTURES")" \
+    "$CASE_LOG" no
+  grep -Fq 'SHA256 校验失败' "$CASE_LOG" || fail "缺少校验失败提示"
 }
 
 case_fail_launcher_bashn() {
@@ -572,8 +574,8 @@ case_fail_launcher_bashn() {
   printf '\nif true; then\n' >>"$BADLN_FIXTURES/xray-manager.sh"
   (cd "$BADLN_FIXTURES" && sha256sum xray-manager.sh lib/xray-manager-core.sh | \
     sed 's/^\([0-9a-f]*\) \*/\1  /' >SHA256SUMS)
-  assert_failure_rollback "$(run_expect_failure "$TEST_ROOT/failbashn.log" "$BADLN_FIXTURES")" \
-    "$TEST_ROOT/failbashn.log" no
+  assert_failure_rollback "$(run_expect_failure "$CASE_LOG" "$BADLN_FIXTURES")" \
+    "$CASE_LOG" no
 }
 
 case_fail_core_bashn() {
@@ -583,26 +585,26 @@ case_fail_core_bashn() {
   printf '\nif true; then\n' >>"$BADCORE_FIXTURES/lib/xray-manager-core.sh"
   (cd "$BADCORE_FIXTURES" && sha256sum xray-manager.sh lib/xray-manager-core.sh | \
     sed 's/^\([0-9a-f]*\) \*/\1  /' >SHA256SUMS)
-  assert_failure_rollback "$(run_expect_failure "$TEST_ROOT/failcorebashn.log" "$BADCORE_FIXTURES")" \
-    "$TEST_ROOT/failcorebashn.log" no
+  assert_failure_rollback "$(run_expect_failure "$CASE_LOG" "$BADCORE_FIXTURES")" \
+    "$CASE_LOG" no
 }
 
 case_fail_pair_write() {
   failure_scenario failpair
-  assert_failure_rollback "$(run_expect_failure "$TEST_ROOT/failpair.log" "" launcher)" \
-    "$TEST_ROOT/failpair.log" yes
+  assert_failure_rollback "$(run_expect_failure "$CASE_LOG" "" launcher)" \
+    "$CASE_LOG" yes
 }
 
 case_fail_switch() {
   failure_scenario failswitch
-  assert_failure_rollback "$(run_expect_failure "$TEST_ROOT/failswitch.log" "" switch)" \
-    "$TEST_ROOT/failswitch.log" yes
+  assert_failure_rollback "$(run_expect_failure "$CASE_LOG" "" switch)" \
+    "$CASE_LOG" yes
 }
 
 case_fail_selfcheck() {
   failure_scenario failselfcheck
-  assert_failure_rollback "$(run_expect_failure "$TEST_ROOT/failselfcheck.log" "" selfcheck)" \
-    "$TEST_ROOT/failselfcheck.log" yes
+  assert_failure_rollback "$(run_expect_failure "$CASE_LOG" "" selfcheck)" \
+    "$CASE_LOG" yes
   [[ "$(read_project_version "$(current_dir)/xray-manager.sh")" == "1.8.4" ]] || \
     fail "selfcheck 失败后 current 未回到旧版本"
 }
