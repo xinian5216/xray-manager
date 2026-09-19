@@ -123,10 +123,14 @@ case_fresh_install() {
   local out
   out="$(timeout -k 10 "$INSTALLER_TIMEOUT" bash "$LOG_DIR/installer.sh" 2>&1)" || \
     fail "install.sh 执行失败：$(tail -5 <<<"$out")"
+  printf '%s\n' "$out" >"$CASE_LOG"
   grep -Fq "Xray Manager 项目版本 $EXPECTED_VERSION 安装完成" <<<"$out" || \
     fail "安装未输出完成提示：$(tail -3 <<<"$out")"
-  /usr/local/sbin/xraym --version </dev/null 2>&1 | \
-    grep -Fq "Xray Manager project: $EXPECTED_VERSION" || fail "xraym --version 版本不符"
+  local ver_out
+  ver_out="$(/usr/local/sbin/xraym --version </dev/null 2>&1)" || \
+    fail "xraym --version 运行失败：$ver_out"
+  grep -Fq "Xray Manager project: $EXPECTED_VERSION" <<<"$ver_out" || \
+    fail "xraym --version 输出不符：$ver_out"
 }
 
 case_self_update() {
