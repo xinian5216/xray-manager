@@ -317,7 +317,7 @@ assert_new_layout() {
 
 assert_backup_preserved() {
   local backup old_launcher_hash backup_hash
-  backup="$(find "$LIB_DIR/migration-backup" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+  backup="$(find "$LIB_DIR/migration-backup" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n1 || true)"
   [[ -n "$backup" && -f "$backup/migration.info" ]] || fail "迁移备份缺失"
   grep -Fq 'type=' "$backup/migration.info" || fail "迁移备份缺少类型记录"
   if [[ -f "$backup/xraym" ]]; then
@@ -534,7 +534,7 @@ assert_failure_rollback() {
   [[ "$(read_project_version "$INSTALL_PATH")" == "1.8.4" ]] || \
     fail "失败场景中旧 Launcher 版本改变"
   [[ -x "$INSTALL_PATH" ]] || fail "失败场景中旧 xraym 不可执行"
-  backup="$(find "$LIB_DIR/migration-backup" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+  backup="$(find "$LIB_DIR/migration-backup" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n1 || true)"
   if [[ "$backup_expected" == "yes" ]]; then
     [[ -n "$backup" && -f "$backup/migration.info" ]] || fail "安装中途失败应保留迁移备份"
     grep -Fq 'old_version=1.8.4' "$backup/migration.info" || fail "备份缺少旧版本记录"
