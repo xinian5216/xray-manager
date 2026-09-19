@@ -93,7 +93,7 @@ jobs:
       - name: Xray asset integrity test
         run: bash tests/xray-asset-integrity.sh
       - name: Legacy manager upgrade test
-        run: bash tests/legacy-manager-upgrade.sh
+        run: sudo bash tests/legacy-manager-upgrade.sh
       - name: Inbound management regression test
         run: bash tests/inbound-management.sh
       - name: WireGuard management regression test
